@@ -510,11 +510,4 @@ export const seedLedgers: Ledger[] = [
   },
 
   // ===== EXAMPLE PARTY / LOAN LEDGER =====
-  {
-    id: 'L200',
-    name: 'Bhuwan Loan A/C',
-    groupName: 'Loans & Advances',
-    nature: 'Liability',
-    isParty: true,
-  },
 ];

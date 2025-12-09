@@ -6,7 +6,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { View, ActivityIndicator, Text } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 import { seedLedgers } from '../data/seedLedgers';
 import { seedTransactions } from '../data/seedTransactions';
@@ -70,19 +70,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // -------- CREATE LEDGER (backend + local state update) ----------
-  const addLedger = async (input: NewLedgerInput): Promise<Ledger | null> => {
+    const addLedger = async (input: NewLedgerInput): Promise<Ledger | null> => {
     try {
       const created = await storage.createLedger(input);
       setLedgers((prev) => [...prev, created]);
       return created;
     } catch (err) {
       console.warn('Failed to create ledger on backend', err);
-      return null;
+      // IMPORTANT: error upar tak jaane do
+      throw err;
     }
   };
 
+
   // -------- CREATE ENTRY (single line for now) ----------
-  const addTransaction = async (input: NewTransactionInput): Promise<void> => {
+    const addTransaction = async (input: NewTransactionInput): Promise<void> => {
     try {
       const entryPayload: EntryInput = {
         date: input.date,
@@ -98,16 +100,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         ],
       };
 
-      await storage.createEntry(entryPayload);
-
-      // Backend me new entry add ho gaya, ab fresh list le aate hain
+      // createEntry khud backend hit + fresh data laa raha hai
       const { ledgers: nextLedgers, transactions: nextTx } =
-        await storage.loadInitialData();
+        await storage.createEntry(entryPayload);
 
       setLedgers(nextLedgers);
       setTransactions(nextTx);
     } catch (err) {
       console.warn('Failed to create entry on backend', err);
+      // IMPORTANT: upar tak error bhejo
+      throw err;
     }
   };
 

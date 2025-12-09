@@ -1,20 +1,20 @@
 // app/entry/new.tsx
-import React, { useMemo, useState } from 'react';
-import { useSettings } from '../../src/context/SettingsContext';
-import { getLedgerLabel } from '../../src/utils/ledgerLabels';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-} from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import React, { useMemo, useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useData } from '../../src/context/AppDataContext';
+import { useSettings } from '../../src/context/SettingsContext';
 import type { Ledger } from '../../src/models/ledger';
 import type { VoucherType } from '../../src/models/transaction';
+import { getLedgerLabel } from '../../src/utils/ledgerLabels';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -187,68 +187,73 @@ export default function NewEntryScreen() {
       return;
     }
 
-    let groupName =
-      newLedgerPartyType === 'debtor'
-        ? 'Sundry Debtors'
-        : 'Sundry Creditors';
-    const nature =
-      newLedgerPartyType === 'debtor' ? 'Asset' : 'Liability';
+    try {
+      let groupName =
+        newLedgerPartyType === 'debtor'
+          ? 'Sundry Debtors'
+          : 'Sundry Creditors';
+      const nature =
+        newLedgerPartyType === 'debtor' ? 'Asset' : 'Liability';
 
-    const existing = findExistingByExactName(name);
-    if (existing) {
-      Alert.alert(
-        'Already Exists',
-        `Ledger "${name}" already exists. Using existing one.`,
-      );
-      applyCreatedLedger(existing, createCtx);
-      setCreateCtx(null);
-      return;
-    }
-
-    const newLedger = await addLedger({
-      name,
-      groupName,
-      nature,
-      isParty: true,
-    });
-
-    if (!newLedger) {
-      Alert.alert('Error', 'Failed to create ledger.');
-      return;
-    }
-
-    const openingAmountNum = parseAmount(newLedgerOpeningAmount);
-    if (openingAmountNum > 0) {
-      const openingType = newLedgerOpeningType;
-      const openingLedger = await getOrCreateOpeningLedger();
-      const date =
-        entryType === 'journal' ? journalDate || todayDateStr : todayDateStr;
-
-      if (openingType === 'Dr') {
-        // New A/c Dr  To Opening
-        await addTransaction({
-          date,
-          debitLedgerId: newLedger.id,
-          creditLedgerId: openingLedger.id,
-          amount: openingAmountNum,
-          narration: 'Opening balance',
-          voucherType: 'Journal',
-        });
-      } else {
-        // Opening Dr  To New A/c
-        await addTransaction({
-          date,
-          debitLedgerId: openingLedger.id,
-          creditLedgerId: newLedger.id,
-          amount: openingAmountNum,
-          narration: 'Opening balance',
-          voucherType: 'Journal',
-        });
+      const existing = findExistingByExactName(name);
+      if (existing) {
+        Alert.alert(
+          'Already Exists',
+          `Ledger "${name}" already exists. Using existing one.`,
+        );
+        applyCreatedLedger(existing, createCtx);
+        setCreateCtx(null);
+        return;
       }
-    }
 
-    applyCreatedLedger(newLedger, createCtx);
-    setCreateCtx(null);
+      const newLedger = await addLedger({
+        name,
+        groupName,
+        nature,
+        isParty: true,
+      });
+
+      if (!newLedger) {
+        Alert.alert('Error', 'Failed to create ledger.');
+        return;
+      }
+
+      const openingAmountNum = parseAmount(newLedgerOpeningAmount);
+      if (openingAmountNum > 0) {
+        const openingType = newLedgerOpeningType;
+        const openingLedger = await getOrCreateOpeningLedger();
+        const date =
+          entryType === 'journal' ? journalDate || todayDateStr : todayDateStr;
+
+        if (openingType === 'Dr') {
+          // New A/c Dr  To Opening
+          await addTransaction({
+            date,
+            debitLedgerId: newLedger.id,
+            creditLedgerId: openingLedger.id,
+            amount: openingAmountNum,
+            narration: 'Opening balance',
+            voucherType: 'Journal',
+          });
+        } else {
+          // Opening Dr  To New A/c
+          await addTransaction({
+            date,
+            debitLedgerId: openingLedger.id,
+            creditLedgerId: newLedger.id,
+            amount: openingAmountNum,
+            narration: 'Opening balance',
+            voucherType: 'Journal',
+          });
+        }
+      }
+
+      applyCreatedLedger(newLedger, createCtx);
+      setCreateCtx(null);
+    } catch (err) {
+      console.error('[Ledger] Failed to create ledger', err);
+      Alert.alert('Error', 'Failed to create ledger. Please try again.');
+    }
   };
 
   const applyCreatedLedger = (ledger: Ledger, ctx: CreateLedgerContext) => {
@@ -274,7 +279,7 @@ export default function NewEntryScreen() {
   };
 
   // ========== SAVE: CASH BOOK ==========
-  const handleSaveCashBook = () => {
+  const handleSaveCashBook = async () => {
     const amount = parseAmount(cashAmount);
     if (!amount || amount <= 0) {
       Alert.alert('Validation', 'Please enter amount.');
@@ -323,38 +328,46 @@ export default function NewEntryScreen() {
     const voucherType: VoucherType =
       cashDirection === 'out' ? 'Payment' : 'Receipt';
 
-    if (cashDirection === 'out') {
-      // Other A/C Dr  To Cash/Bank
-      void addTransaction({
-        date,
-        debitLedgerId: usedOtherLedger.id,
-        creditLedgerId: usedCashLedger.id,
-        amount,
-        narration,
-        voucherType,
-      });
-    } else {
-      // Cash/Bank Dr  To Other A/C
-      void addTransaction({
-        date,
-        debitLedgerId: usedCashLedger.id,
-        creditLedgerId: usedOtherLedger.id,
-        amount,
-        narration,
-        voucherType,
-      });
-    }
+    try {
+      if (cashDirection === 'out') {
+        // Other A/C Dr  To Cash/Bank
+        await addTransaction({
+          date,
+          debitLedgerId: usedOtherLedger.id,
+          creditLedgerId: usedCashLedger.id,
+          amount,
+          narration,
+          voucherType,
+        });
+      } else {
+        // Cash/Bank Dr  To Other A/C
+        await addTransaction({
+          date,
+          debitLedgerId: usedCashLedger.id,
+          creditLedgerId: usedOtherLedger.id,
+          amount,
+          narration,
+          voucherType,
+        });
+      }
 
-    Alert.alert('Success', 'Entries saved successfully.', [
-      {
-        text: 'OK',
-        onPress: () => router.replace('/(tabs)/entries'),
-      },
-    ]);
+      Alert.alert('Success', 'Entries saved successfully.', [
+        {
+          text: 'OK',
+          onPress: () => router.replace('/(tabs)/entries'),
+        },
+      ]);
+    } catch (err) {
+      console.error('[Entry] Failed to save cash entry', err);
+      Alert.alert(
+        'Error',
+        'Failed to save cash entry. Please check your connection / backend.',
+      );
+    }
   };
 
   // ========== SAVE: JOURNAL ==========
-  const handleSaveJournal = () => {
+  const handleSaveJournal = async () => {
     const drLines = debitLines
       .map((line) => ({
         ...line,
@@ -398,7 +411,11 @@ export default function NewEntryScreen() {
 
     const missing: { type: 'dr' | 'cr'; lineId: string; name: string }[] = [];
 
-    const resolveExisting = (type: 'dr' | 'cr', lineId: string, name: string) => {
+    const resolveExisting = (
+      type: 'dr' | 'cr',
+      lineId: string,
+      name: string,
+    ) => {
       const ledger = findExistingByExactName(name);
       if (!ledger) {
         missing.push({ type, lineId, name });
@@ -433,48 +450,66 @@ export default function NewEntryScreen() {
     const date = journalDate.trim() || todayDateStr;
     const narration = journalNarration.trim() || 'Journal entry';
 
-    if (crResolved.length === 1) {
-      // Many Dr → One Cr
-      const cr = crResolved[0];
-      if (!cr.ledger) return;
-      const crLedger = cr.ledger;
+    try {
+      const ops: Promise<unknown>[] = [];
 
-      drResolved.forEach((dr) => {
-        if (!dr.ledger) return;
-        void addTransaction({
-          date,
-          debitLedgerId: dr.ledger.id,
-          creditLedgerId: crLedger.id,
-          amount: dr.amountNum,
-          narration,
-          voucherType: 'Journal',
-        });
-      });
-    } else if (drResolved.length === 1) {
-      // One Dr → Many Cr
-      const dr = drResolved[0];
-      if (!dr.ledger) return;
-      const drLedger = dr.ledger;
-
-      crResolved.forEach((cr) => {
+      if (crResolved.length === 1) {
+        // Many Dr → One Cr
+        const cr = crResolved[0];
         if (!cr.ledger) return;
-        void addTransaction({
-          date,
-          debitLedgerId: drLedger.id,
-          creditLedgerId: cr.ledger.id,
-          amount: cr.amountNum,
-          narration,
-          voucherType: 'Journal',
-        });
-      });
-    }
+        const crLedger = cr.ledger;
 
-    Alert.alert('Success', 'Entries saved successfully.', [
-      {
-        text: 'OK',
-        onPress: () => router.replace('/(tabs)/entries'),
-      },
-    ]);
+        drResolved.forEach((dr) => {
+          if (!dr.ledger) return;
+          ops.push(
+            addTransaction({
+              date,
+              debitLedgerId: dr.ledger.id,
+              creditLedgerId: crLedger.id,
+              amount: dr.amountNum,
+              narration,
+              voucherType: 'Journal',
+            }),
+          );
+        });
+      } else if (drResolved.length === 1) {
+        // One Dr → Many Cr
+        const dr = drResolved[0];
+        if (!dr.ledger) return;
+        const drLedger = dr.ledger;
+
+        crResolved.forEach((cr) => {
+          if (!cr.ledger) return;
+          ops.push(
+            addTransaction({
+              date,
+              debitLedgerId: drLedger.id,
+              creditLedgerId: cr.ledger.id,
+              amount: cr.amountNum,
+              narration,
+              voucherType: 'Journal',
+            }),
+          );
+        });
+      }
+
+      if (ops.length === 0) return;
+
+      await Promise.all(ops);
+
+      Alert.alert('Success', 'Entries saved successfully.', [
+        {
+          text: 'OK',
+          onPress: () => router.replace('/(tabs)/entries'),
+        },
+      ]);
+    } catch (err) {
+      console.error('[Entry] Failed to save journal entry', err);
+      Alert.alert(
+        'Error',
+        'Failed to save journal entry. Please check your connection / backend.',
+      );
+    }
   };
 
   const renderChip = (value: EntryType, label: string) => {
@@ -553,7 +588,8 @@ export default function NewEntryScreen() {
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>Create New Ledger</Text>
               <Text style={styles.modalHint}>
-                This will be added as a party ledger with optional opening balance.
+                This will be added as a party ledger with optional opening
+                balance.
               </Text>
 
               <Text style={[styles.label, { marginTop: 8 }]}>Ledger Name</Text>
@@ -707,7 +743,7 @@ type CashBookProps = {
   narration: string;
   setNarration: (v: string) => void;
   findMatchingLedgers: (q: string) => Ledger[];
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
   onRequestCreateLedger: (ctx: CreateLedgerContext) => void;
 };
 
@@ -907,7 +943,7 @@ function CashBookForm(props: CashBookProps) {
         onChangeText={setNarration}
       />
 
-      <TouchableOpacity style={styles.saveButton} onPress={onSave}>
+      <TouchableOpacity style={styles.saveButton} onPress={() => void onSave()}>
         <Text style={styles.saveButtonText}>Save Cash Entry</Text>
       </TouchableOpacity>
     </View>
@@ -925,7 +961,7 @@ type JournalProps = {
   creditLines: Line[];
   setCreditLines: (ls: Line[]) => void;
   findMatchingLedgers: (q: string) => Ledger[];
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
   onRequestCreateLedger: (ctx: CreateLedgerContext) => void;
 };
 
@@ -1117,7 +1153,7 @@ function JournalForm(props: JournalProps) {
         onChangeText={setNarration}
       />
 
-      <TouchableOpacity style={styles.saveButton} onPress={onSave}>
+      <TouchableOpacity style={styles.saveButton} onPress={() => void onSave()}>
         <Text style={styles.saveButtonText}>Save Journal Entry</Text>
       </TouchableOpacity>
     </View>
