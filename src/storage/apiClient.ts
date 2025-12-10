@@ -1,46 +1,25 @@
 // src/storage/apiClient.ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCurrentUserEmail } from '../config/userIdentity';
 import type { VoucherType } from '../models/transaction';
 
-// EC2 backend URL
 const BASE_URL = 'http://3.107.197.46:4000';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
-const SETTINGS_KEY = '@ledger_settings_v1';
-
-async function getUserEmailForApi(): Promise<string | undefined> {
-  try {
-    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-    if (!raw) return undefined;
-
-    const parsed = JSON.parse(raw);
-    const email = parsed.userEmail;
-
-    if (typeof email === 'string' && email.trim() !== '') {
-      return email.trim().toLowerCase();
-    }
-    return undefined;
-  } catch (e) {
-    console.warn('[API] Failed to read userEmail from settings', e);
-    return undefined;
-  }
-}
-
 async function request<T>(
   path: string,
   method: HttpMethod = 'GET',
-  body?: any
+  body?: any,
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
+
   console.log('[API] request:', method, url);
+
+  const email = getCurrentUserEmail(); // header ke liye
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-
-  // 📨 yahan se har request ke saath user ka email jaayega
-  const email = await getUserEmailForApi();
   if (email) {
     headers['x-user-email'] = email;
   }
@@ -72,7 +51,45 @@ async function request<T>(
   }
 }
 
-// ------- Specific helpers -------
+// --------------------------------------------------
+// Types
+// --------------------------------------------------
+
+export type ApiUser = {
+  id: string;
+  username: string;
+  email: string;
+  fullName: string | null;
+  businessName: string | null;
+  phone: string | null;
+  createdAt: string;
+};
+
+// --------------------------------------------------
+// Auth APIs
+// --------------------------------------------------
+
+export function apiSignup(payload: {
+  name: string;
+  businessName?: string;
+  email: string;
+  username: string;
+  password: string;
+  phone?: string;
+}) {
+  return request<ApiUser>('/auth/signup', 'POST', payload);
+}
+
+export function apiLogin(payload: {
+  usernameOrEmail: string;
+  password: string;
+}) {
+  return request<ApiUser>('/auth/login', 'POST', payload);
+}
+
+// --------------------------------------------------
+// Ledger APIs
+// --------------------------------------------------
 
 // Ledgers
 export function apiGetLedgers() {
@@ -125,7 +142,7 @@ export function apiGetLedgerStatement(params: {
 
   return request<unknown[]>(
     `/ledgers/${params.ledgerId}/statement${qs}`,
-    'GET'
+    'GET',
   );
 }
 

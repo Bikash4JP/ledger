@@ -1,9 +1,7 @@
 // app/(tabs)/settings.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Alert,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,8 +9,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
+import { apiLogin, apiSignup } from '../../src/storage/apiClient';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -23,95 +23,28 @@ const COLORS = {
   border: '#e0e0e0',
 };
 
-const ONBOARDING_KEY = '@ledger_onboarding_seen_v1';
-
-const ONBOARDING_SLIDES = [
-  {
-    key: 'welcome',
-    title: 'Welcome to Ledger',
-    body: 'Track your personal and business money in one simple app.',
-  },
-  {
-    key: 'entries',
-    title: 'Quick Entries',
-    body: 'Add cash in / out in seconds and keep your daily flow updated.',
-  },
-  {
-    key: 'books',
-    title: 'Automatic Books',
-    body: 'Ledger automatically prepares basic accounting books from your entries.',
-  },
-  {
-    key: 'cloud',
-    title: 'Cloud Ready',
-    body: 'In future versions, you\'ll be able to safely backup and restore your data.',
-  },
-  {
-    key: 'privacy',
-    title: 'Your Data, Your Control',
-    body: 'Everything is designed for privacy and simple control by you.',
-  },
-];
-
 export default function SettingsScreen() {
-  const { settings, setLanguage } = useSettings();
+  const { settings, setLanguage, setSyncEmail } = useSettings();
+  const { reloadFromServer } = useData();
   const t = useT();
   const currentLang = settings.language;
 
-  // -------- Onboarding tutorial state --------
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingIndex, setOnboardingIndex] = useState(0);
-
-  useEffect(() => {
-    const loadOnboarding = async () => {
-      try {
-        const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
-        if (!seen) {
-          setShowOnboarding(true);
-        }
-      } catch (e) {
-        console.warn('Failed to read onboarding flag', e);
-      }
-    };
-    loadOnboarding();
-  }, []);
-
-  const finishOnboarding = async () => {
-    try {
-      await AsyncStorage.setItem(ONBOARDING_KEY, '1');
-    } catch (e) {
-      console.warn('Failed to save onboarding flag', e);
-    }
-    setShowOnboarding(false);
-  };
-
-  const goNextSlide = () => {
-    if (onboardingIndex < ONBOARDING_SLIDES.length - 1) {
-      setOnboardingIndex((i) => i + 1);
-    } else {
-      finishOnboarding();
-    }
-  };
-
-  const goPrevSlide = () => {
-    if (onboardingIndex > 0) {
-      setOnboardingIndex((i) => i - 1);
-    }
-  };
-
-  // -------- Fake auth UI state (frontend only) --------
+  // ---- Auth UI state ----
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [accountUsername, setAccountUsername] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'collapsed' | 'login' | 'signup'>(
     'collapsed',
   );
+  const [submitting, setSubmitting] = useState(false);
 
-  const [loginUsername, setLoginUsername] = useState('');
+  // login
+  const [loginUsernameOrEmail, setLoginUsernameOrEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
+  // signup
   const [signupName, setSignupName] = useState('');
   const [signupBusiness, setSignupBusiness] = useState('');
-  const [signupEmailPhone, setSignupEmailPhone] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
   const [signupUsername, setSignupUsername] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
 
@@ -136,35 +69,87 @@ export default function SettingsScreen() {
     );
   };
 
-  // ---- Auth handlers (demo only) ----
-  const handleFakeLogin = () => {
-    if (!loginUsername.trim() || !loginPassword.trim()) {
-      Alert.alert('Login', 'Please enter username and password.');
+  // ---- REAL auth handlers ----
+  const handleLogin = async () => {
+    const id = loginUsernameOrEmail.trim();
+    const pwd = loginPassword;
+
+    if (!id || !pwd) {
+      Alert.alert('Login', 'Please enter username/email and password.');
       return;
     }
-    setIsLoggedIn(true);
-    setAccountUsername(loginUsername.trim());
-    setAuthMode('collapsed');
-    Alert.alert('Welcome', `Hi ${loginUsername.trim()}! (demo login only)`);
+
+    try {
+      setSubmitting(true);
+      const user = await apiLogin({
+        usernameOrEmail: id,
+        password: pwd,
+      });
+
+      // Link app to this email for all future API calls
+      setSyncEmail(user.email);
+
+      setIsLoggedIn(true);
+      setAccountUsername(user.username);
+      setAuthMode('collapsed');
+
+      // Reload ledgers + entries for this user
+      await reloadFromServer();
+
+      Alert.alert('Login', `Welcome back, ${user.username}!`);
+    } catch (e: any) {
+      console.error('Login error', e);
+      Alert.alert(
+        'Login failed',
+        e?.message?.toString() ?? 'Unable to login. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleFakeSignup = () => {
-    if (
-      !signupName.trim() ||
-      !signupEmailPhone.trim() ||
-      !signupUsername.trim() ||
-      !signupPassword.trim()
-    ) {
-      Alert.alert('Sign up', 'Please fill all required fields.');
+  const handleSignup = async () => {
+    const name = signupName.trim();
+    const biz = signupBusiness.trim();
+    const email = signupEmail.trim();
+    const username = signupUsername.trim();
+    const pwd = signupPassword;
+
+    if (!name || !email || !username || !pwd) {
+      Alert.alert(
+        'Sign up',
+        'Please fill name, email, username and password.',
+      );
       return;
     }
-    setIsLoggedIn(true);
-    setAccountUsername(signupUsername.trim());
-    setAuthMode('collapsed');
-    Alert.alert(
-      'Account created',
-      `Hi ${signupUsername.trim()}! (demo signup only)`,
-    );
+
+    try {
+      setSubmitting(true);
+      const user = await apiSignup({
+        name,
+        businessName: biz || undefined,
+        email,
+        username,
+        password: pwd,
+      });
+
+      setSyncEmail(user.email);
+      setIsLoggedIn(true);
+      setAccountUsername(user.username);
+      setAuthMode('collapsed');
+
+      await reloadFromServer();
+
+      Alert.alert('Sign up', `Account created. Hi, ${user.username}!`);
+    } catch (e: any) {
+      console.error('Signup error', e);
+      Alert.alert(
+        'Sign up failed',
+        e?.message?.toString() ?? 'Unable to create account. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleGoogleLogin = () => {
@@ -187,10 +172,17 @@ export default function SettingsScreen() {
       {
         text: 'Logout',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
           setIsLoggedIn(false);
           setAccountUsername(null);
           setAuthMode('collapsed');
+          setSyncEmail(null);
+          try {
+            await reloadFromServer();
+          } catch {
+            // ignore
+          }
+          Alert.alert('Logout', 'You are logged out on this device.');
         },
       },
     ]);
@@ -203,350 +195,283 @@ export default function SettingsScreen() {
   };
 
   // ---------- RENDER ----------
-  const currentSlide = ONBOARDING_SLIDES[onboardingIndex];
-
   return (
-    <>
-      {/* Onboarding modal (first time only) */}
-      <Modal
-        visible={showOnboarding}
-        animationType="fade"
-        transparent
-        statusBarTranslucent
-      >
-        <View style={styles.onboardingOverlay}>
-          <View style={styles.onboardingCard}>
-            <View style={styles.onboardingHeaderRow}>
-              <Text style={styles.onboardingTitle}>{currentSlide.title}</Text>
-              <TouchableOpacity onPress={finishOnboarding}>
-                <Text style={styles.onboardingSkip}>Skip</Text>
-              </TouchableOpacity>
-            </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>{t('settings.title')}</Text>
+        <Text style={styles.subtitle}>{t('settings.subtitle')}</Text>
+      </View>
 
-            <View style={styles.onboardingBody}>
-              <Text style={styles.onboardingBodyText}>
-                {currentSlide.body}
-              </Text>
-            </View>
-
-            <View style={styles.onboardingDotsRow}>
-              {ONBOARDING_SLIDES.map((s, idx) => (
-                <View
-                  key={s.key}
-                  style={[
-                    styles.onboardingDot,
-                    idx === onboardingIndex && styles.onboardingDotActive,
-                  ]}
-                />
-              ))}
-            </View>
-
-            <View style={styles.onboardingFooterRow}>
-              <TouchableOpacity
-                disabled={onboardingIndex === 0}
-                onPress={goPrevSlide}
-                style={[
-                  styles.onboardingButton,
-                  onboardingIndex === 0 && styles.onboardingButtonDisabled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.onboardingButtonText,
-                    onboardingIndex === 0 && styles.onboardingButtonTextDisabled,
-                  ]}
-                >
-                  Prev
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={goNextSlide}
-                style={[styles.onboardingButton, styles.onboardingPrimaryButton]}
-              >
-                <Text style={[styles.onboardingButtonText, { color: '#fff' }]}>
-                  {onboardingIndex === ONBOARDING_SLIDES.length - 1
-                    ? 'Get started'
-                    : 'Next'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Main settings content */}
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-      >
-        {/* Header */}
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>{t('settings.title')}</Text>
-          <Text style={styles.subtitle}>{t('settings.subtitle')}</Text>
-        </View>
-
-        {/* LOGIN / ACCOUNT SECTION */}
-        <View style={styles.card}>
-          {isLoggedIn ? (
-            <>
-              <Text style={styles.sectionTitle}>Account</Text>
-              <Text style={styles.infoText}>
-                Hi{' '}
-                <Text style={{ fontWeight: '600', color: COLORS.dark }}>
-                  {accountUsername}
-                </Text>
-                {' '}👋
-              </Text>
-              <Text style={[styles.infoText, { marginTop: 4 }]}>
-                This account will be used to sync your data across devices in a
-                future version.
-              </Text>
-
-              <View style={styles.buttonRow}>
-                <TouchableOpacity
-                  style={[styles.smallButton, styles.primaryButton]}
-                  onPress={handleLogout}
-                >
-                  <Text style={styles.smallButtonText}>Logout</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.smallButton, styles.outlineButton]}
-                  onPress={handleSwitchAccount}
-                >
-                  <Text style={styles.outlineButtonText}>Switch account</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            <>
-              <Text style={styles.sectionTitle}>Login</Text>
-              <Text style={styles.sectionHint}>
-                Log in to keep your ledger data linked to your account and
-                access from multiple devices in the future.
-              </Text>
-
-              {authMode === 'collapsed' && (
-                <TouchableOpacity
-                  style={styles.bigLoginButton}
-                  onPress={() => setAuthMode('login')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.bigLoginButtonText}>
-                    Log in or sign up
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {authMode !== 'collapsed' && (
-                <View style={styles.authPanel}>
-                  {/* Tabs: Login / Sign up */}
-                  <View style={styles.authTabsRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.authTab,
-                        authMode === 'login' && styles.authTabActive,
-                      ]}
-                      onPress={() => setAuthMode('login')}
-                    >
-                      <Text
-                        style={[
-                          styles.authTabText,
-                          authMode === 'login' && styles.authTabTextActive,
-                        ]}
-                      >
-                        Login
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.authTab,
-                        authMode === 'signup' && styles.authTabActive,
-                      ]}
-                      onPress={() => setAuthMode('signup')}
-                    >
-                      <Text
-                        style={[
-                          styles.authTabText,
-                          authMode === 'signup' && styles.authTabTextActive,
-                        ]}
-                      >
-                        Sign up
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {authMode === 'login' ? (
-                    <>
-                      <Text style={styles.label}>Username</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="your_username"
-                        placeholderTextColor="#aaaaaa"
-                        autoCapitalize="none"
-                        value={loginUsername}
-                        onChangeText={setLoginUsername}
-                      />
-
-                      <Text style={styles.label}>Password</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="••••••••"
-                        placeholderTextColor="#aaaaaa"
-                        secureTextEntry
-                        value={loginPassword}
-                        onChangeText={setLoginPassword}
-                      />
-
-                      <TouchableOpacity
-                        style={[styles.smallButton, styles.primaryButton, { marginTop: 8 }]}
-                        onPress={handleFakeLogin}
-                      >
-                        <Text style={styles.smallButtonText}>Login</Text>
-                      </TouchableOpacity>
-
-                      <View style={styles.dividerRow}>
-                        <View style={styles.dividerLine} />
-                        <Text style={styles.dividerText}>or</Text>
-                        <View style={styles.dividerLine} />
-                      </View>
-
-                      <TouchableOpacity
-                        style={[styles.oauthButton, { backgroundColor: '#ffffff' }]}
-                        onPress={handleGoogleLogin}
-                      >
-                        <Text style={styles.oauthIcon}>G</Text>
-                        <Text style={styles.oauthText}>
-                          Sign in with Google
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.oauthButton, { backgroundColor: '#ffffff' }]}
-                        onPress={handlePhoneLogin}
-                      >
-                        <Text style={styles.oauthIcon}>📱</Text>
-                        <Text style={styles.oauthText}>
-                          Login with phone number
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.label}>Full name</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Your name"
-                        placeholderTextColor="#aaaaaa"
-                        value={signupName}
-                        onChangeText={setSignupName}
-                      />
-
-                      <Text style={styles.label}>Business name (optional)</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Your shop / company"
-                        placeholderTextColor="#aaaaaa"
-                        value={signupBusiness}
-                        onChangeText={setSignupBusiness}
-                      />
-
-                      <Text style={styles.label}>Email or phone</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="you@example.com / +81-90-xxxx-xxxx"
-                        placeholderTextColor="#aaaaaa"
-                        value={signupEmailPhone}
-                        onChangeText={setSignupEmailPhone}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                      />
-
-                      <Text style={styles.label}>Username</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Choose a username"
-                        placeholderTextColor="#aaaaaa"
-                        autoCapitalize="none"
-                        value={signupUsername}
-                        onChangeText={setSignupUsername}
-                      />
-
-                      <Text style={styles.label}>Password</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Create a password"
-                        placeholderTextColor="#aaaaaa"
-                        secureTextEntry
-                        value={signupPassword}
-                        onChangeText={setSignupPassword}
-                      />
-
-                      <TouchableOpacity
-                        style={[styles.smallButton, styles.primaryButton, { marginTop: 8 }]}
-                        onPress={handleFakeSignup}
-                      >
-                        <Text style={styles.smallButtonText}>Create account</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </View>
-              )}
-            </>
-          )}
-        </View>
-
-        {/* LANGUAGE SECTION */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>
-            {t('settings.language.title')}
-          </Text>
-          <Text style={styles.sectionHint}>
-            {t('settings.language.hint')}
-          </Text>
-
-          <View style={styles.langRow}>
-            {renderLangChip('en', 'English')}
-            {renderLangChip('ja', '日本語')}
-          </View>
-
-          <Text style={styles.currentLangText}>
-            {currentLang === 'en'
-              ? t('settings.language.current.en')
-              : t('settings.language.current.ja')}
-          </Text>
-
-          {currentLang === 'ja' && (
-            <Text style={[styles.infoText, { marginTop: 6 }]}>
-              All content might not be translated into Japanese.
+      {/* LOGIN / ACCOUNT SECTION */}
+      <View style={styles.card}>
+        {isLoggedIn ? (
+          <>
+            <Text style={styles.sectionTitle}>Account</Text>
+            <Text style={styles.infoText}>
+              Hi{' '}
+              <Text style={{ fontWeight: '600', color: COLORS.dark }}>
+                {accountUsername}
+              </Text>{' '}
+              👋
             </Text>
-          )}
+            <Text style={[styles.infoText, { marginTop: 4 }]}>
+              This account is linked to your ledger data on the server. When you
+              login on another device with the same account, your entries can be
+              restored.
+            </Text>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.smallButton, styles.primaryButton]}
+                onPress={handleLogout}
+              >
+                <Text style={styles.smallButtonText}>Logout</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.smallButton, styles.outlineButton]}
+                onPress={handleSwitchAccount}
+              >
+                <Text style={styles.outlineButtonText}>Switch account</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>Login</Text>
+            <Text style={styles.sectionHint}>
+              Log in to keep your ledger data linked to your account and access
+              from multiple devices.
+            </Text>
+
+            {authMode === 'collapsed' && (
+              <TouchableOpacity
+                style={styles.bigLoginButton}
+                onPress={() => setAuthMode('login')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.bigLoginButtonText}>
+                  Log in or sign up
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {authMode !== 'collapsed' && (
+              <View style={styles.authPanel}>
+                {/* Tabs: Login / Sign up */}
+                <View style={styles.authTabsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.authTab,
+                      authMode === 'login' && styles.authTabActive,
+                    ]}
+                    onPress={() => setAuthMode('login')}
+                  >
+                    <Text
+                      style={[
+                        styles.authTabText,
+                        authMode === 'login' && styles.authTabTextActive,
+                      ]}
+                    >
+                      Login
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.authTab,
+                      authMode === 'signup' && styles.authTabActive,
+                    ]}
+                    onPress={() => setAuthMode('signup')}
+                  >
+                    <Text
+                      style={[
+                        styles.authTabText,
+                        authMode === 'signup' && styles.authTabTextActive,
+                      ]}
+                    >
+                      Sign up
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {authMode === 'login' ? (
+                  <>
+                    <Text style={styles.label}>Username or Email</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="your_username or you@example.com"
+                      placeholderTextColor="#aaaaaa"
+                      autoCapitalize="none"
+                      value={loginUsernameOrEmail}
+                      onChangeText={setLoginUsernameOrEmail}
+                    />
+
+                    <Text style={styles.label}>Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="••••••••"
+                      placeholderTextColor="#aaaaaa"
+                      secureTextEntry
+                      value={loginPassword}
+                      onChangeText={setLoginPassword}
+                    />
+
+                    <TouchableOpacity
+                      style={[
+                        styles.smallButton,
+                        styles.primaryButton,
+                        { marginTop: 8, opacity: submitting ? 0.7 : 1 },
+                      ]}
+                      onPress={handleLogin}
+                      disabled={submitting}
+                    >
+                      <Text style={styles.smallButtonText}>
+                        {submitting ? 'Logging in...' : 'Login'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.dividerRow}>
+                      <View style={styles.dividerLine} />
+                      <Text style={styles.dividerText}>or</Text>
+                      <View style={styles.dividerLine} />
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.oauthButton}
+                      onPress={handleGoogleLogin}
+                    >
+                      <Text style={styles.oauthIcon}>G</Text>
+                      <Text style={styles.oauthText}>Sign in with Google</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.oauthButton, { backgroundColor: '#ffffff', borderColor: COLORS.border }]}
+                      onPress={handlePhoneLogin}
+                    >
+                      <Text style={[styles.oauthIcon, { color: '#444', backgroundColor: 'transparent', borderWidth: 0 }]}>
+                        📱
+                      </Text>
+                      <Text style={[styles.oauthText, { color: COLORS.dark }]}>
+                        Login with phone number
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.label}>Full name</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Your name"
+                      placeholderTextColor="#aaaaaa"
+                      value={signupName}
+                      onChangeText={setSignupName}
+                    />
+
+                    <Text style={styles.label}>Business name (optional)</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Your shop / company"
+                      placeholderTextColor="#aaaaaa"
+                      value={signupBusiness}
+                      onChangeText={setSignupBusiness}
+                    />
+
+                    <Text style={styles.label}>Email</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="you@example.com"
+                      placeholderTextColor="#aaaaaa"
+                      value={signupEmail}
+                      onChangeText={setSignupEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+
+                    <Text style={styles.label}>Username</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Choose a username"
+                      placeholderTextColor="#aaaaaa"
+                      autoCapitalize="none"
+                      value={signupUsername}
+                      onChangeText={setSignupUsername}
+                    />
+
+                    <Text style={styles.label}>Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Create a password"
+                      placeholderTextColor="#aaaaaa"
+                      secureTextEntry
+                      value={signupPassword}
+                      onChangeText={setSignupPassword}
+                    />
+
+                    <TouchableOpacity
+                      style={[
+                        styles.smallButton,
+                        styles.primaryButton,
+                        { marginTop: 8, opacity: submitting ? 0.7 : 1 },
+                      ]}
+                      onPress={handleSignup}
+                      disabled={submitting}
+                    >
+                      <Text style={styles.smallButtonText}>
+                        {submitting ? 'Signing up...' : 'Create account'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            )}
+          </>
+        )}
+      </View>
+
+      {/* LANGUAGE SECTION */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>{t('settings.language.title')}</Text>
+        <Text style={styles.sectionHint}>{t('settings.language.hint')}</Text>
+
+        <View style={styles.langRow}>
+          {renderLangChip('en', 'English')}
+          {renderLangChip('ja', '日本語')}
         </View>
 
-        {/* ABOUT SECTION */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>
-            {t('settings.about.title')}
-          </Text>
-          <Text style={styles.infoText}>
-            {`This app is designed and developed by Bikash.\nIt is currently in an early development version.\nLedger helps you manage your personal and professional money, and automatically creates basic accounting books from your daily entries.`}
-          </Text>
-        </View>
+        <Text style={styles.currentLangText}>
+          {currentLang === 'en'
+            ? t('settings.language.current.en')
+            : t('settings.language.current.ja')}
+        </Text>
 
-        {/* UPDATES SECTION */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Updates</Text>
-          <Text style={styles.infoText}>
-            You are currently using version 1.0.0 of the app.
+        {currentLang === 'ja' && (
+          <Text style={[styles.infoText, { marginTop: 6 }]}>
+            All content might not be translated into Japanese.
           </Text>
-          <Text style={[styles.infoText, { marginTop: 4 }]}>
-            In future, this section will show update notifications and details
-            about new features.
-          </Text>
-        </View>
-      </ScrollView>
-    </>
+        )}
+      </View>
+
+      {/* ABOUT SECTION */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>{t('settings.about.title')}</Text>
+        <Text style={styles.infoText}>
+          {`This app is designed and developed by Bikash.\nIt is currently in an early development version.\nLedger helps you manage your personal and professional money, and automatically creates basic accounting books from your daily entries.`}
+        </Text>
+      </View>
+
+      {/* UPDATES SECTION */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Updates</Text>
+        <Text style={styles.infoText}>
+          You are currently using version 1.0.0 of the app.
+        </Text>
+        <Text style={[styles.infoText, { marginTop: 4 }]}>
+          In future, this section will show update notifications and details
+          about new features.
+        </Text>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -745,111 +670,24 @@ const styles = StyleSheet.create({
   oauthButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     marginBottom: 6,
+    backgroundColor: '#4285F4', // Google blue
+    borderWidth: 1,
+    borderColor: '#4285F4',
   },
   oauthIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    textAlign: 'center',
-    textAlignVertical: 'center',
     marginRight: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: COLORS.border,
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 15,
+    color: '#fff',
   },
   oauthText: {
     fontSize: 13,
-    color: COLORS.dark,
-  },
-
-  // onboarding
-  onboardingOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  onboardingCard: {
-    width: '100%',
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    padding: 16,
-  },
-  onboardingHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  onboardingTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.dark,
-    flex: 1,
-    paddingRight: 8,
-  },
-  onboardingSkip: {
-    fontSize: 12,
-    color: COLORS.accent,
+    color: '#fff',
     fontWeight: '500',
-  },
-  onboardingBody: {
-    marginTop: 16,
-    marginBottom: 16,
-  },
-  onboardingBodyText: {
-    fontSize: 14,
-    color: COLORS.dark,
-    lineHeight: 20,
-  },
-  onboardingDotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 12,
-    marginTop: 4,
-  },
-  onboardingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ddd',
-    marginHorizontal: 3,
-  },
-  onboardingDotActive: {
-    backgroundColor: COLORS.primary,
-    width: 14,
-  },
-  onboardingFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  onboardingButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  onboardingPrimaryButton: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  onboardingButtonText: {
-    fontSize: 13,
-    color: COLORS.dark,
-  },
-  onboardingButtonTextDisabled: {
-    color: '#bbb',
-  },
-  onboardingButtonDisabled: {
-    borderColor: '#eee',
   },
 });
