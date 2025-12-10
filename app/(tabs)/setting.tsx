@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useData } from '../../src/context/AppDataContext'; // 👈 NEW
+import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
 
@@ -24,7 +24,7 @@ const COLORS = {
 
 export default function SettingsScreen() {
   const { settings, setLanguage, setSyncEmail } = useSettings();
-  const { reloadFromServer } = useData();          // 👈 NEW
+  const { reloadFromServer } = useData();
   const t = useT();
   const currentLang = settings.language;
   const currentEmail = settings.syncEmail ?? '';
@@ -58,10 +58,13 @@ export default function SettingsScreen() {
   const handleRefreshFromCloud = async () => {
     try {
       await reloadFromServer();
-      Alert.alert('Cloud sync', 'Latest data loaded from server for this email.');
+      Alert.alert(
+        'Cloud backup',
+        'Latest data loaded from server for this email.',
+      );
     } catch (e) {
       Alert.alert(
-        'Cloud sync',
+        'Cloud backup',
         'Failed to reload from server. Please check your network connection.',
       );
     }
@@ -69,7 +72,7 @@ export default function SettingsScreen() {
 
   const handleClearLocal = () => {
     Alert.alert(
-      'Clear local settings',
+      'Reset this device',
       'This will reset language and clear your saved email on this device. Your cloud data on server will NOT be deleted.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -88,6 +91,9 @@ export default function SettingsScreen() {
       ],
     );
   };
+
+  const emailDisplay =
+    currentEmail.length > 0 ? currentEmail : 'Not set yet';
 
   return (
     <ScrollView
@@ -133,7 +139,7 @@ export default function SettingsScreen() {
           {t('settings.data.hint')}
         </Text>
 
-        <Text style={styles.label}>Cloud ID (your Gmail)</Text>
+        <Text style={styles.label}>Backup email (Gmail recommended)</Text>
         <TextInput
           style={styles.input}
           placeholder="you@example.com"
@@ -143,8 +149,16 @@ export default function SettingsScreen() {
           value={currentEmail}
           onChangeText={handleEmailChange}
         />
+
         <Text style={styles.infoText}>
-          {`Your entries are stored on the server using this email.\nIf you install the app on another phone and enter the same email here, your data will be loaded again.`}
+          {`Your entries are stored on the server using this email.\nIf you install the app on another phone and enter the same email here, then tap "Restore from backup", your data will be loaded on that device.`}
+        </Text>
+
+        <Text style={[styles.infoText, { marginTop: 4 }]}>
+          <Text style={{ fontWeight: '600', color: COLORS.dark }}>
+            Current backup email:{' '}
+          </Text>
+          {emailDisplay}
         </Text>
 
         <View style={styles.buttonRow}>
@@ -152,14 +166,14 @@ export default function SettingsScreen() {
             style={[styles.smallButton, styles.primaryButton]}
             onPress={handleRefreshFromCloud}
           >
-            <Text style={styles.smallButtonText}>Refresh from cloud</Text>
+            <Text style={styles.smallButtonText}>Restore from backup</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.smallButton, styles.outlineButton]}
             onPress={handleClearLocal}
           >
-            <Text style={styles.outlineButtonText}>Clear local</Text>
+            <Text style={styles.outlineButtonText}>Reset this device</Text>
           </TouchableOpacity>
         </View>
       </View>
