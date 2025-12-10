@@ -1,13 +1,31 @@
 // src/storage/apiClient.ts
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { VoucherType } from '../models/transaction';
 
-// ⚠️ REAL DEVICE + EXPO GO:
-// Ab backend AWS EC2 pe chal raha hai.
-// EC2 public IP: 3.107.197.46, port: 4000
-// Agar future me IP change ho, sirf yeh line update karni hai.
+// EC2 backend URL
 const BASE_URL = 'http://3.107.197.46:4000';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+
+const SETTINGS_KEY = '@ledger_settings_v1';
+
+async function getUserEmailForApi(): Promise<string | undefined> {
+  try {
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    if (!raw) return undefined;
+
+    const parsed = JSON.parse(raw);
+    const email = parsed.userEmail;
+
+    if (typeof email === 'string' && email.trim() !== '') {
+      return email.trim().toLowerCase();
+    }
+    return undefined;
+  } catch (e) {
+    console.warn('[API] Failed to read userEmail from settings', e);
+    return undefined;
+  }
+}
 
 async function request<T>(
   path: string,
@@ -15,15 +33,21 @@ async function request<T>(
   body?: any
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
-
-  // 🔍 DEBUG LOG: dekhte hain app actually kya hit kar raha hai
   console.log('[API] request:', method, url);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // 📨 yahan se har request ke saath user ka email jaayega
+  const email = await getUserEmailForApi();
+  if (email) {
+    headers['x-user-email'] = email;
+  }
 
   const options: RequestInit = {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
   };
 
   if (body !== undefined) {

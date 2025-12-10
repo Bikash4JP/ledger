@@ -37,6 +37,7 @@ type DataContextValue = {
   transactions: Transaction[];
   addTransaction: (input: NewTransactionInput) => Promise<void>;
   addLedger: (input: NewLedgerInput) => Promise<Ledger | null>;
+  reloadFromServer: () => Promise<void>;   // 👈 NEW
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -69,22 +70,33 @@ export function DataProvider({ children }: { children: ReactNode }) {
     loadData();
   }, []);
 
+  // -------- RELOAD ALL DATA (manual refresh from Settings) ----------
+  const reloadFromServer = async (): Promise<void> => {
+    try {
+      console.log('[Data] manual reload from backend');
+      const { ledgers, transactions } = await storage.loadInitialData();
+      setLedgers(ledgers);
+      setTransactions(transactions);
+    } catch (err) {
+      console.warn('Failed to reload data from backend', err);
+      throw err;
+    }
+  };
+
   // -------- CREATE LEDGER (backend + local state update) ----------
-    const addLedger = async (input: NewLedgerInput): Promise<Ledger | null> => {
+  const addLedger = async (input: NewLedgerInput): Promise<Ledger | null> => {
     try {
       const created = await storage.createLedger(input);
       setLedgers((prev) => [...prev, created]);
       return created;
     } catch (err) {
       console.warn('Failed to create ledger on backend', err);
-      // IMPORTANT: error upar tak jaane do
-      throw err;
+      return null;
     }
   };
 
-
   // -------- CREATE ENTRY (single line for now) ----------
-    const addTransaction = async (input: NewTransactionInput): Promise<void> => {
+  const addTransaction = async (input: NewTransactionInput): Promise<void> => {
     try {
       const entryPayload: EntryInput = {
         date: input.date,
@@ -100,16 +112,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         ],
       };
 
-      // createEntry khud backend hit + fresh data laa raha hai
+      await storage.createEntry(entryPayload);
+
+      // Backend me new entry add ho gaya, ab fresh list le aate hain
       const { ledgers: nextLedgers, transactions: nextTx } =
-        await storage.createEntry(entryPayload);
+        await storage.loadInitialData();
 
       setLedgers(nextLedgers);
       setTransactions(nextTx);
     } catch (err) {
       console.warn('Failed to create entry on backend', err);
-      // IMPORTANT: upar tak error bhejo
-      throw err;
     }
   };
 
@@ -131,7 +143,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ ledgers, transactions, addTransaction, addLedger }}
+      value={{ ledgers, transactions, addTransaction, addLedger, reloadFromServer }}
     >
       {children}
     </DataContext.Provider>

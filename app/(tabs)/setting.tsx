@@ -1,12 +1,15 @@
 // app/(tabs)/settings.tsx
 import React from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Alert,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
   TouchableOpacity,
+  View,
 } from 'react-native';
+import { useData } from '../../src/context/AppDataContext'; // 👈 NEW
 import { useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
 
@@ -20,9 +23,11 @@ const COLORS = {
 };
 
 export default function SettingsScreen() {
-  const { settings, setLanguage } = useSettings();
+  const { settings, setLanguage, setSyncEmail } = useSettings();
+  const { reloadFromServer } = useData();          // 👈 NEW
   const t = useT();
   const currentLang = settings.language;
+  const currentEmail = settings.syncEmail ?? '';
 
   const renderLangChip = (value: 'en' | 'ja', label: string) => {
     const selected = currentLang === value;
@@ -42,6 +47,45 @@ export default function SettingsScreen() {
           {label}
         </Text>
       </TouchableOpacity>
+    );
+  };
+
+  const handleEmailChange = (value: string) => {
+    const trimmed = value.trim();
+    setSyncEmail(trimmed.length ? trimmed : null);
+  };
+
+  const handleRefreshFromCloud = async () => {
+    try {
+      await reloadFromServer();
+      Alert.alert('Cloud sync', 'Latest data loaded from server for this email.');
+    } catch (e) {
+      Alert.alert(
+        'Cloud sync',
+        'Failed to reload from server. Please check your network connection.',
+      );
+    }
+  };
+
+  const handleClearLocal = () => {
+    Alert.alert(
+      'Clear local settings',
+      'This will reset language and clear your saved email on this device. Your cloud data on server will NOT be deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'OK',
+          style: 'destructive',
+          onPress: () => {
+            setLanguage('en');
+            setSyncEmail(null);
+            Alert.alert(
+              'Done',
+              'Local settings cleared. You can enter a new email anytime.',
+            );
+          },
+        },
+      ],
     );
   };
 
@@ -88,7 +132,36 @@ export default function SettingsScreen() {
         <Text style={styles.sectionHint}>
           {t('settings.data.hint')}
         </Text>
-        <Text style={styles.infoText}>{t('settings.data.info')}</Text>
+
+        <Text style={styles.label}>Cloud ID (your Gmail)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="you@example.com"
+          placeholderTextColor="#aaaaaa"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          value={currentEmail}
+          onChangeText={handleEmailChange}
+        />
+        <Text style={styles.infoText}>
+          {`Your entries are stored on the server using this email.\nIf you install the app on another phone and enter the same email here, your data will be loaded again.`}
+        </Text>
+
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={[styles.smallButton, styles.primaryButton]}
+            onPress={handleRefreshFromCloud}
+          >
+            <Text style={styles.smallButtonText}>Refresh from cloud</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.smallButton, styles.outlineButton]}
+            onPress={handleClearLocal}
+          >
+            <Text style={styles.outlineButtonText}>Clear local</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* About section */}
@@ -97,7 +170,7 @@ export default function SettingsScreen() {
           {t('settings.about.title')}
         </Text>
         <Text style={styles.infoText}>
-          {t('settings.about.info')}
+          {`This app is designed and developed by Bikash.\nIt is currently in an early development version.\nLedger helps you manage your personal and professional money, and automatically creates basic accounting books from your daily entries.`}
         </Text>
       </View>
     </ScrollView>
@@ -182,5 +255,51 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginTop: 6,
     lineHeight: 18,
+  },
+
+  label: {
+    fontSize: 12,
+    color: COLORS.dark,
+    marginBottom: 4,
+    marginTop: 4,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: COLORS.dark,
+    marginBottom: 6,
+  },
+
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    gap: 8,
+    marginTop: 8,
+  },
+  smallButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  primaryButton: {
+    backgroundColor: COLORS.primary,
+  },
+  smallButtonText: {
+    fontSize: 12,
+    color: COLORS.lightBg,
+    fontWeight: '500',
+  },
+  outlineButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: 'transparent',
+  },
+  outlineButtonText: {
+    fontSize: 12,
+    color: COLORS.dark,
   },
 });
