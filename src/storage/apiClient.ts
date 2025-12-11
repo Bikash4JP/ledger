@@ -1,8 +1,8 @@
-// src/storage/apiClient.ts
+// ledger/src/storage/apiClient.ts
 import { getCurrentUserEmail } from '../config/userIdentity';
 import type { VoucherType } from '../models/transaction';
 
-const BASE_URL = 'http://3.107.197.46:4000';
+export const API_BASE_URL = 'http://3.107.197.46:4000';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -11,15 +11,15 @@ async function request<T>(
   method: HttpMethod = 'GET',
   body?: any,
 ): Promise<T> {
-  const url = `${BASE_URL}${path}`;
+  const url = `${API_BASE_URL}${path}`;
 
   console.log('[API] request:', method, url);
-
-  const email = getCurrentUserEmail(); // header ke liye
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
+
+  const email = getCurrentUserEmail();
   if (email) {
     headers['x-user-email'] = email;
   }
@@ -51,45 +51,7 @@ async function request<T>(
   }
 }
 
-// --------------------------------------------------
-// Types
-// --------------------------------------------------
-
-export type ApiUser = {
-  id: string;
-  username: string;
-  email: string;
-  fullName: string | null;
-  businessName: string | null;
-  phone: string | null;
-  createdAt: string;
-};
-
-// --------------------------------------------------
-// Auth APIs
-// --------------------------------------------------
-
-export function apiSignup(payload: {
-  name: string;
-  businessName?: string;
-  email: string;
-  username: string;
-  password: string;
-  phone?: string;
-}) {
-  return request<ApiUser>('/auth/signup', 'POST', payload);
-}
-
-export function apiLogin(payload: {
-  usernameOrEmail: string;
-  password: string;
-}) {
-  return request<ApiUser>('/auth/login', 'POST', payload);
-}
-
-// --------------------------------------------------
-// Ledger APIs
-// --------------------------------------------------
+// ------- Specific helpers -------
 
 // Ledgers
 export function apiGetLedgers() {

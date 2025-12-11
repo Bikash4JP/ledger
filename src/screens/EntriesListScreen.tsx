@@ -1,13 +1,14 @@
 // src/screens/EntriesListScreen.tsx
+import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Alert,
   FlatList,
+  StyleSheet,
+  Text,
   TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useData } from '../context/AppDataContext';
 
 const COLORS = {
@@ -16,11 +17,12 @@ const COLORS = {
   lightBg: '#ffffff',
   muted: '#777777',
   border: '#e0e0e0',
+  danger: '#d32f2f',
 };
 
 export default function EntriesListScreen() {
   const router = useRouter();
-  const { transactions, ledgers } = useData();
+  const { transactions, ledgers, deleteTransaction } = useData();
 
   const rows = useMemo(() => {
     const getLedgerName = (id: string) =>
@@ -49,27 +51,62 @@ export default function EntriesListScreen() {
     router.push('/entry/new' as any);
   };
 
+  const handleDeleteEntry = (id: string) => {
+    Alert.alert(
+      'Delete entry',
+      'Are you sure you want to delete this entry completely?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void deleteTransaction(id).catch((err) => {
+              console.warn('Delete failed', err);
+              Alert.alert(
+                'Error',
+                'Failed to delete entry. Please try again.',
+              );
+            });
+          },
+        },
+      ],
+    );
+  };
+
   const renderRow = ({ item }: { item: (typeof rows)[number] }) => (
-    <TouchableOpacity
-      style={styles.row}
-      onPress={() => handleOpenEntry(item.id)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.rowTop}>
-        <Text style={styles.date}>{item.date}</Text>
-        <Text style={styles.amount}>
-          ¥{item.amount.toLocaleString(undefined, { minimumFractionDigits: 0 })}
+    <View style={styles.row}>
+      <TouchableOpacity
+        style={styles.rowContent}
+        onPress={() => handleOpenEntry(item.id)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.rowTop}>
+          <Text style={styles.date}>{item.date}</Text>
+          <Text style={styles.amount}>
+            ¥{item.amount.toLocaleString(undefined, {
+              minimumFractionDigits: 0,
+            })}
+          </Text>
+        </View>
+        <Text style={styles.ledgerLine}>
+          {item.debitName} → {item.creditName}
         </Text>
-      </View>
-      <Text style={styles.ledgerLine}>
-        {item.debitName} → {item.creditName}
-      </Text>
-      {item.narration ? (
-        <Text style={styles.narration} numberOfLines={1}>
-          {item.narration}
-        </Text>
-      ) : null}
-    </TouchableOpacity>
+        {item.narration ? (
+          <Text style={styles.narration} numberOfLines={1}>
+            {item.narration}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={() => handleDeleteEntry(item.id)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.deleteText}>🗑</Text>
+      </TouchableOpacity>
+    </View>
   );
 
   return (
@@ -133,12 +170,18 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   row: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: 10,
     marginBottom: 8,
     backgroundColor: '#fafafa',
+  },
+  rowContent: {
+    flex: 1,
+    marginRight: 8,
   },
   rowTop: {
     flexDirection: 'row',
@@ -162,6 +205,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 11,
     color: COLORS.muted,
+  },
+  deleteBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  deleteText: {
+    fontSize: 18,
+    color: COLORS.danger,
   },
   emptyBox: {
     paddingVertical: 20,

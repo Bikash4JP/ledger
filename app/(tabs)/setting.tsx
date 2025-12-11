@@ -1,7 +1,9 @@
-// app/(tabs)/settings.tsx
-import React, { useState } from 'react';
+// ledger/app/(tabs)/setting.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,10 +11,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { AuthUser, login, signup } from '../../src/api/authClient';
 import { useData } from '../../src/context/AppDataContext';
-import { useSettings } from '../../src/context/SettingsContext';
+import { AuthProfile, useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
-import { apiLogin, apiSignup } from '../../src/storage/apiClient';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -23,28 +25,97 @@ const COLORS = {
   border: '#e0e0e0',
 };
 
+const ONBOARDING_KEY = '@ledger_onboarding_seen_v1';
+
+const ONBOARDING_SLIDES = [
+  {
+    key: 'welcome',
+    title: 'Welcome to Ledger',
+    body: 'Track your personal and business money in one simple app.',
+  },
+  {
+    key: 'entries',
+    title: 'Quick Entries',
+    body: 'Add cash in / out in seconds and keep your daily flow updated.',
+  },
+  {
+    key: 'books',
+    title: 'Automatic Books',
+    body: 'Ledger automatically prepares basic accounting books from your entries.',
+  },
+  {
+    key: 'cloud',
+    title: 'Cloud Ready',
+    body: 'Your entries are stored per account. Login from any device to see your data.',
+  },
+  {
+    key: 'privacy',
+    title: 'Your Data, Your Control',
+    body: 'Everything is designed for privacy and simple control by you.',
+  },
+];
+
+type SettingsSection = 'menu' | 'account' | 'language' | 'about' | 'updates';
+
 export default function SettingsScreen() {
-  const { settings, setLanguage, setSyncEmail } = useSettings();
+  const { settings, setLanguage, setSyncEmail, setAuthProfile } = useSettings();
   const { reloadFromServer } = useData();
   const t = useT();
   const currentLang = settings.language;
+  const authProfile = settings.authProfile;
+  const isLoggedIn = !!authProfile;
 
-  // ---- Auth UI state ----
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [accountUsername, setAccountUsername] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<'collapsed' | 'login' | 'signup'>(
-    'collapsed',
-  );
-  const [submitting, setSubmitting] = useState(false);
+  const [activeSection, setActiveSection] = useState<SettingsSection>('menu');
 
-  // login
-  const [loginUsernameOrEmail, setLoginUsernameOrEmail] = useState('');
+  // -------- Onboarding tutorial state --------
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingIndex, setOnboardingIndex] = useState(0);
+
+  useEffect(() => {
+    const loadOnboarding = async () => {
+      try {
+        const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
+        if (!seen) {
+          setShowOnboarding(true);
+        }
+      } catch (e) {
+        console.warn('Failed to read onboarding flag', e);
+      }
+    };
+    loadOnboarding();
+  }, []);
+
+  const finishOnboarding = async () => {
+    try {
+      await AsyncStorage.setItem(ONBOARDING_KEY, '1');
+    } catch (e) {
+      console.warn('Failed to save onboarding flag', e);
+    }
+    setShowOnboarding(false);
+  };
+
+  const goNextSlide = () => {
+    if (onboardingIndex < ONBOARDING_SLIDES.length - 1) {
+      setOnboardingIndex((i) => i + 1);
+    } else {
+      finishOnboarding();
+    }
+  };
+
+  const goPrevSlide = () => {
+    if (onboardingIndex > 0) {
+      setOnboardingIndex((i) => i - 1);
+    }
+  };
+
+  // -------- Auth form state --------
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
-  // signup
   const [signupName, setSignupName] = useState('');
   const [signupBusiness, setSignupBusiness] = useState('');
-  const [signupEmail, setSignupEmail] = useState('');
+  const [signupEmailPhone, setSignupEmailPhone] = useState('');
   const [signupUsername, setSignupUsername] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
 
@@ -70,408 +141,552 @@ export default function SettingsScreen() {
   };
 
   // ---- REAL auth handlers ----
-  const handleLogin = async () => {
-    const id = loginUsernameOrEmail.trim();
-    const pwd = loginPassword;
+  const mapUserToProfile = (user: AuthUser): AuthProfile => ({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    fullName: user.fullName,
+    businessName: user.businessName,
+  });
 
-    if (!id || !pwd) {
+  const handleLogin = async () => {
+    const identifier = loginUsername.trim();
+    if (!identifier || !loginPassword.trim()) {
       Alert.alert('Login', 'Please enter username/email and password.');
       return;
     }
 
     try {
-      setSubmitting(true);
-      const user = await apiLogin({
-        usernameOrEmail: id,
-        password: pwd,
+      const user = await login({
+        usernameOrEmail: identifier,
+        password: loginPassword,
       });
 
-      // Link app to this email for all future API calls
+      const profile = mapUserToProfile(user);
+      setAuthProfile(profile);
       setSyncEmail(user.email);
-
-      setIsLoggedIn(true);
-      setAccountUsername(user.username);
-      setAuthMode('collapsed');
-
-      // Reload ledgers + entries for this user
       await reloadFromServer();
 
-      Alert.alert('Login', `Welcome back, ${user.username}!`);
+      Alert.alert('Welcome', `Hi ${user.username}!`);
+      setActiveSection('menu');
     } catch (e: any) {
-      console.error('Login error', e);
+      console.error('Login failed', e);
       Alert.alert(
         'Login failed',
-        e?.message?.toString() ?? 'Unable to login. Please try again.',
+        e instanceof Error
+          ? e.message
+          : 'Unable to login. Please check your username/email and password.',
       );
-    } finally {
-      setSubmitting(false);
     }
   };
 
   const handleSignup = async () => {
-    const name = signupName.trim();
-    const biz = signupBusiness.trim();
-    const email = signupEmail.trim();
-    const username = signupUsername.trim();
-    const pwd = signupPassword;
-
-    if (!name || !email || !username || !pwd) {
-      Alert.alert(
-        'Sign up',
-        'Please fill name, email, username and password.',
-      );
+    if (
+      !signupName.trim() ||
+      !signupEmailPhone.trim() ||
+      !signupUsername.trim() ||
+      !signupPassword.trim()
+    ) {
+      Alert.alert('Sign up', 'Please fill all required fields.');
       return;
     }
 
     try {
-      setSubmitting(true);
-      const user = await apiSignup({
-        name,
-        businessName: biz || undefined,
-        email,
-        username,
-        password: pwd,
+      const user = await signup({
+        name: signupName.trim(),
+        businessName: signupBusiness.trim() || undefined,
+        email: signupEmailPhone.trim(),
+        username: signupUsername.trim(),
+        password: signupPassword,
       });
 
+      const profile = mapUserToProfile(user);
+      setAuthProfile(profile);
       setSyncEmail(user.email);
-      setIsLoggedIn(true);
-      setAccountUsername(user.username);
-      setAuthMode('collapsed');
-
       await reloadFromServer();
 
-      Alert.alert('Sign up', `Account created. Hi, ${user.username}!`);
+      Alert.alert('Account created', `Hi ${user.username}!`);
+      setActiveSection('menu');
     } catch (e: any) {
-      console.error('Signup error', e);
+      console.error('Signup failed', e);
       Alert.alert(
         'Sign up failed',
-        e?.message?.toString() ?? 'Unable to create account. Please try again.',
+        e instanceof Error
+          ? e.message
+          : 'Could not create account. Please try again.',
       );
-    } finally {
-      setSubmitting(false);
     }
   };
 
   const handleGoogleLogin = () => {
     Alert.alert(
       'Google sign-in',
-      'Google login will be added in a future version.',
+      'Google login will be connected to a real provider in a future version. For now, please use email/username + password.',
     );
   };
 
   const handlePhoneLogin = () => {
     Alert.alert(
       'Phone login',
-      'Phone number login will be added in a future version.',
+      'Phone number login will be connected to an SMS provider in a future version. For now, please use email/username + password.',
     );
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert('Logout', 'Do you really want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Logout',
         style: 'destructive',
         onPress: async () => {
-          setIsLoggedIn(false);
-          setAccountUsername(null);
-          setAuthMode('collapsed');
+          setAuthProfile(null);
           setSyncEmail(null);
-          try {
-            await reloadFromServer();
-          } catch {
-            // ignore
-          }
-          Alert.alert('Logout', 'You are logged out on this device.');
+          await reloadFromServer();
+          setActiveSection('menu');
         },
       },
     ]);
   };
 
-  const handleSwitchAccount = () => {
-    setIsLoggedIn(false);
-    setAccountUsername(null);
-    setAuthMode('login');
-  };
+  const currentSlide = ONBOARDING_SLIDES[onboardingIndex];
 
-  // ---------- RENDER ----------
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Header */}
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>{t('settings.title')}</Text>
-        <Text style={styles.subtitle}>{t('settings.subtitle')}</Text>
+  // ---------- SECTION VIEWS ----------
+
+  const renderMenu = () => (
+    <View style={styles.card}>
+      <Text style={styles.sectionTitle}>Settings</Text>
+      <Text style={styles.sectionHint}>
+        Manage your account, language, app info and updates.
+      </Text>
+
+      {/* Account / Login */}
+      <TouchableOpacity
+        style={styles.menuRow}
+        onPress={() => setActiveSection('account')}
+      >
+        <View>
+          <Text style={styles.menuTitle}>
+            {isLoggedIn ? 'Account' : 'Login / Sign up'}
+          </Text>
+          <Text style={styles.menuSubtitle}>
+            {isLoggedIn
+              ? `Logged in as ${authProfile?.username}`
+              : 'Connect your data to an account'}
+          </Text>
+        </View>
+        <Text style={styles.menuArrow}>›</Text>
+      </TouchableOpacity>
+
+      {/* Language */}
+      <TouchableOpacity
+        style={styles.menuRow}
+        onPress={() => setActiveSection('language')}
+      >
+        <View>
+          <Text style={styles.menuTitle}>Language</Text>
+          <Text style={styles.menuSubtitle}>
+            {currentLang === 'en' ? 'English' : '日本語'}
+          </Text>
+        </View>
+        <Text style={styles.menuArrow}>›</Text>
+      </TouchableOpacity>
+
+      {/* About */}
+      <TouchableOpacity
+        style={styles.menuRow}
+        onPress={() => setActiveSection('about')}
+      >
+        <View>
+          <Text style={styles.menuTitle}>About</Text>
+          <Text style={styles.menuSubtitle}>App info and creator</Text>
+        </View>
+        <Text style={styles.menuArrow}>›</Text>
+      </TouchableOpacity>
+
+      {/* Updates */}
+      <TouchableOpacity
+        style={styles.menuRow}
+        onPress={() => setActiveSection('updates')}
+      >
+        <View>
+          <Text style={styles.menuTitle}>Updates</Text>
+          <Text style={styles.menuSubtitle}>
+            Version 1.0.0 · Features log (coming soon)
+          </Text>
+        </View>
+        <Text style={styles.menuArrow}>›</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderAccount = () => (
+    <View style={styles.card}>
+      <View style={styles.sectionHeaderRow}>
+        <TouchableOpacity onPress={() => setActiveSection('menu')}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={[styles.sectionTitle, { flex: 1 }]}>Account</Text>
       </View>
 
-      {/* LOGIN / ACCOUNT SECTION */}
-      <View style={styles.card}>
-        {isLoggedIn ? (
-          <>
-            <Text style={styles.sectionTitle}>Account</Text>
-            <Text style={styles.infoText}>
-              Hi{' '}
-              <Text style={{ fontWeight: '600', color: COLORS.dark }}>
-                {accountUsername}
-              </Text>{' '}
-              👋
-            </Text>
-            <Text style={[styles.infoText, { marginTop: 4 }]}>
-              This account is linked to your ledger data on the server. When you
-              login on another device with the same account, your entries can be
-              restored.
-            </Text>
+      {isLoggedIn ? (
+        <>
+          <Text style={styles.infoText}>
+            Hi{' '}
+            <Text style={{ fontWeight: '600', color: COLORS.dark }}>
+              {authProfile?.username}
+            </Text>{' '}
+            👋
+          </Text>
+          <Text style={[styles.infoText, { marginTop: 4 }]}>
+            This account is used to sync your entries across devices.
+          </Text>
+          <Text style={[styles.infoText, { marginTop: 4, fontSize: 11 }]}>
+            Email: {authProfile?.email}
+          </Text>
 
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[styles.smallButton, styles.primaryButton]}
-                onPress={handleLogout}
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.smallButton, styles.primaryButton]}
+              onPress={handleLogout}
+            >
+              <Text style={styles.smallButtonText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={styles.sectionHint}>
+            Log in to keep your ledger data linked to your account and access it
+            from multiple devices.
+          </Text>
+
+          {/* Tabs: Login / Sign up */}
+          <View style={styles.authTabsRow}>
+            <TouchableOpacity
+              style={[
+                styles.authTab,
+                authMode === 'login' && styles.authTabActive,
+              ]}
+              onPress={() => setAuthMode('login')}
+            >
+              <Text
+                style={[
+                  styles.authTabText,
+                  authMode === 'login' && styles.authTabTextActive,
+                ]}
               >
-                <Text style={styles.smallButtonText}>Logout</Text>
+                Login
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.authTab,
+                authMode === 'signup' && styles.authTabActive,
+              ]}
+              onPress={() => setAuthMode('signup')}
+            >
+              <Text
+                style={[
+                  styles.authTabText,
+                  authMode === 'signup' && styles.authTabTextActive,
+                ]}
+              >
+                Sign up
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {authMode === 'login' ? (
+            <>
+              <Text style={styles.label}>Username or email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="your_username or you@example.com"
+                placeholderTextColor="#aaaaaa"
+                autoCapitalize="none"
+                value={loginUsername}
+                onChangeText={setLoginUsername}
+              />
+
+              <Text style={styles.label}>Password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="••••••••"
+                placeholderTextColor="#aaaaaa"
+                secureTextEntry
+                value={loginPassword}
+                onChangeText={setLoginPassword}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.smallButton,
+                  styles.primaryButton,
+                  { marginTop: 8 },
+                ]}
+                onPress={handleLogin}
+              >
+                <Text style={styles.smallButtonText}>Login</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.smallButton, styles.outlineButton]}
-                onPress={handleSwitchAccount}
-              >
-                <Text style={styles.outlineButtonText}>Switch account</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={styles.sectionTitle}>Login</Text>
-            <Text style={styles.sectionHint}>
-              Log in to keep your ledger data linked to your account and access
-              from multiple devices.
-            </Text>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
-            {authMode === 'collapsed' && (
               <TouchableOpacity
-                style={styles.bigLoginButton}
-                onPress={() => setAuthMode('login')}
-                activeOpacity={0.8}
+                style={[
+                  styles.oauthButton,
+                  { backgroundColor: '#ffffff' },
+                ]}
+                onPress={handleGoogleLogin}
               >
-                <Text style={styles.bigLoginButtonText}>
-                  Log in or sign up
+                <Text style={styles.oauthIcon}>G</Text>
+                <Text style={styles.oauthText}>
+                  Sign in with Google (coming soon)
                 </Text>
               </TouchableOpacity>
-            )}
 
-            {authMode !== 'collapsed' && (
-              <View style={styles.authPanel}>
-                {/* Tabs: Login / Sign up */}
-                <View style={styles.authTabsRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.authTab,
-                      authMode === 'login' && styles.authTabActive,
-                    ]}
-                    onPress={() => setAuthMode('login')}
-                  >
-                    <Text
-                      style={[
-                        styles.authTabText,
-                        authMode === 'login' && styles.authTabTextActive,
-                      ]}
-                    >
-                      Login
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.authTab,
-                      authMode === 'signup' && styles.authTabActive,
-                    ]}
-                    onPress={() => setAuthMode('signup')}
-                  >
-                    <Text
-                      style={[
-                        styles.authTabText,
-                        authMode === 'signup' && styles.authTabTextActive,
-                      ]}
-                    >
-                      Sign up
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+              <TouchableOpacity
+                style={[
+                  styles.oauthButton,
+                  { backgroundColor: '#ffffff' },
+                ]}
+                onPress={handlePhoneLogin}
+              >
+                <Text style={styles.oauthIcon}>📱</Text>
+                <Text style={styles.oauthText}>
+                  Login with phone number (coming soon)
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>Full name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Your name"
+                placeholderTextColor="#aaaaaa"
+                value={signupName}
+                onChangeText={setSignupName}
+              />
 
-                {authMode === 'login' ? (
-                  <>
-                    <Text style={styles.label}>Username or Email</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="your_username or you@example.com"
-                      placeholderTextColor="#aaaaaa"
-                      autoCapitalize="none"
-                      value={loginUsernameOrEmail}
-                      onChangeText={setLoginUsernameOrEmail}
-                    />
+              <Text style={styles.label}>Business name (optional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Your shop / company"
+                placeholderTextColor="#aaaaaa"
+                value={signupBusiness}
+                onChangeText={setSignupBusiness}
+              />
 
-                    <Text style={styles.label}>Password</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="••••••••"
-                      placeholderTextColor="#aaaaaa"
-                      secureTextEntry
-                      value={loginPassword}
-                      onChangeText={setLoginPassword}
-                    />
+              <Text style={styles.label}>Email or phone</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="you@example.com / +81-90-xxxx-xxxx"
+                placeholderTextColor="#aaaaaa"
+                value={signupEmailPhone}
+                onChangeText={setSignupEmailPhone}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
 
-                    <TouchableOpacity
-                      style={[
-                        styles.smallButton,
-                        styles.primaryButton,
-                        { marginTop: 8, opacity: submitting ? 0.7 : 1 },
-                      ]}
-                      onPress={handleLogin}
-                      disabled={submitting}
-                    >
-                      <Text style={styles.smallButtonText}>
-                        {submitting ? 'Logging in...' : 'Login'}
-                      </Text>
-                    </TouchableOpacity>
+              <Text style={styles.label}>Username</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Choose a username"
+                placeholderTextColor="#aaaaaa"
+                autoCapitalize="none"
+                value={signupUsername}
+                onChangeText={setSignupUsername}
+              />
 
-                    <View style={styles.dividerRow}>
-                      <View style={styles.dividerLine} />
-                      <Text style={styles.dividerText}>or</Text>
-                      <View style={styles.dividerLine} />
-                    </View>
+              <Text style={styles.label}>Password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Create a password"
+                placeholderTextColor="#aaaaaa"
+                secureTextEntry
+                value={signupPassword}
+                onChangeText={setSignupPassword}
+              />
 
-                    <TouchableOpacity
-                      style={styles.oauthButton}
-                      onPress={handleGoogleLogin}
-                    >
-                      <Text style={styles.oauthIcon}>G</Text>
-                      <Text style={styles.oauthText}>Sign in with Google</Text>
-                    </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.smallButton,
+                  styles.primaryButton,
+                  { marginTop: 8 },
+                ]}
+                onPress={handleSignup}
+              >
+                <Text style={styles.smallButtonText}>Create account</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </>
+      )}
+    </View>
+  );
 
-                    <TouchableOpacity
-                      style={[styles.oauthButton, { backgroundColor: '#ffffff', borderColor: COLORS.border }]}
-                      onPress={handlePhoneLogin}
-                    >
-                      <Text style={[styles.oauthIcon, { color: '#444', backgroundColor: 'transparent', borderWidth: 0 }]}>
-                        📱
-                      </Text>
-                      <Text style={[styles.oauthText, { color: COLORS.dark }]}>
-                        Login with phone number
-                      </Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.label}>Full name</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Your name"
-                      placeholderTextColor="#aaaaaa"
-                      value={signupName}
-                      onChangeText={setSignupName}
-                    />
-
-                    <Text style={styles.label}>Business name (optional)</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Your shop / company"
-                      placeholderTextColor="#aaaaaa"
-                      value={signupBusiness}
-                      onChangeText={setSignupBusiness}
-                    />
-
-                    <Text style={styles.label}>Email</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="you@example.com"
-                      placeholderTextColor="#aaaaaa"
-                      value={signupEmail}
-                      onChangeText={setSignupEmail}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-
-                    <Text style={styles.label}>Username</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Choose a username"
-                      placeholderTextColor="#aaaaaa"
-                      autoCapitalize="none"
-                      value={signupUsername}
-                      onChangeText={setSignupUsername}
-                    />
-
-                    <Text style={styles.label}>Password</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Create a password"
-                      placeholderTextColor="#aaaaaa"
-                      secureTextEntry
-                      value={signupPassword}
-                      onChangeText={setSignupPassword}
-                    />
-
-                    <TouchableOpacity
-                      style={[
-                        styles.smallButton,
-                        styles.primaryButton,
-                        { marginTop: 8, opacity: submitting ? 0.7 : 1 },
-                      ]}
-                      onPress={handleSignup}
-                      disabled={submitting}
-                    >
-                      <Text style={styles.smallButtonText}>
-                        {submitting ? 'Signing up...' : 'Create account'}
-                      </Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            )}
-          </>
-        )}
+  const renderLanguage = () => (
+    <View style={styles.card}>
+      <View style={styles.sectionHeaderRow}>
+        <TouchableOpacity onPress={() => setActiveSection('menu')}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={[styles.sectionTitle, { flex: 1 }]}>Language</Text>
       </View>
 
-      {/* LANGUAGE SECTION */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>{t('settings.language.title')}</Text>
-        <Text style={styles.sectionHint}>{t('settings.language.hint')}</Text>
+      <Text style={styles.sectionHint}>
+        {t('settings.language.hint')}
+      </Text>
 
-        <View style={styles.langRow}>
-          {renderLangChip('en', 'English')}
-          {renderLangChip('ja', '日本語')}
+      <View style={styles.langRow}>
+        {renderLangChip('en', 'English')}
+        {renderLangChip('ja', '日本語')}
+      </View>
+
+      <Text style={styles.currentLangText}>
+        {currentLang === 'en'
+          ? t('settings.language.current.en')
+          : t('settings.language.current.ja')}
+      </Text>
+
+      {currentLang === 'ja' && (
+        <Text style={[styles.infoText, { marginTop: 6 }]}>
+          All content might not be translated into Japanese.
+        </Text>
+      )}
+    </View>
+  );
+
+  const renderAbout = () => (
+    <View style={styles.card}>
+      <View style={styles.sectionHeaderRow}>
+        <TouchableOpacity onPress={() => setActiveSection('menu')}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={[styles.sectionTitle, { flex: 1 }]}>About</Text>
+      </View>
+
+      <Text style={styles.infoText}>
+        {`This app is designed and developed by Bikash.\nIt is currently in an early development version.\nLedger helps you manage your personal and professional money, and automatically creates basic accounting books from your daily entries.`}
+      </Text>
+    </View>
+  );
+
+  const renderUpdates = () => (
+    <View style={styles.card}>
+      <View style={styles.sectionHeaderRow}>
+        <TouchableOpacity onPress={() => setActiveSection('menu')}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={[styles.sectionTitle, { flex: 1 }]}>Updates</Text>
+      </View>
+
+      <Text style={styles.infoText}>
+        You are currently using version 1.0.0 of the app.
+      </Text>
+      <Text style={[styles.infoText, { marginTop: 4 }]}>
+        In future, this section will show update notifications and details
+        about new features.
+      </Text>
+    </View>
+  );
+
+  // ---------- RENDER ROOT ----------
+  return (
+    <>
+      {/* Onboarding modal (first time only) */}
+      <Modal
+        visible={showOnboarding}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+      >
+        <View style={styles.onboardingOverlay}>
+          <View style={styles.onboardingCard}>
+            <View style={styles.onboardingHeaderRow}>
+              <Text style={styles.onboardingTitle}>{currentSlide.title}</Text>
+              <TouchableOpacity onPress={finishOnboarding}>
+                <Text style={styles.onboardingSkip}>Skip</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.onboardingBody}>
+              <Text style={styles.onboardingBodyText}>
+                {currentSlide.body}
+              </Text>
+            </View>
+
+            <View style={styles.onboardingDotsRow}>
+              {ONBOARDING_SLIDES.map((s, idx) => (
+                <View
+                  key={s.key}
+                  style={[
+                    styles.onboardingDot,
+                    idx === onboardingIndex && styles.onboardingDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+
+            <View style={styles.onboardingFooterRow}>
+              <TouchableOpacity
+                disabled={onboardingIndex === 0}
+                onPress={goPrevSlide}
+                style={[
+                  styles.onboardingButton,
+                  onboardingIndex === 0 && styles.onboardingButtonDisabled,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.onboardingButtonText,
+                    onboardingIndex === 0 &&
+                      styles.onboardingButtonTextDisabled,
+                  ]}
+                >
+                  Prev
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={goNextSlide}
+                style={[
+                  styles.onboardingButton,
+                  styles.onboardingPrimaryButton,
+                ]}
+              >
+                <Text style={[styles.onboardingButtonText, { color: '#fff' }]}>
+                  {onboardingIndex === ONBOARDING_SLIDES.length - 1
+                    ? 'Get started'
+                    : 'Next'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Main content */}
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>{t('settings.title')}</Text>
+          <Text style={styles.subtitle}>{t('settings.subtitle')}</Text>
         </View>
 
-        <Text style={styles.currentLangText}>
-          {currentLang === 'en'
-            ? t('settings.language.current.en')
-            : t('settings.language.current.ja')}
-        </Text>
-
-        {currentLang === 'ja' && (
-          <Text style={[styles.infoText, { marginTop: 6 }]}>
-            All content might not be translated into Japanese.
-          </Text>
-        )}
-      </View>
-
-      {/* ABOUT SECTION */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>{t('settings.about.title')}</Text>
-        <Text style={styles.infoText}>
-          {`This app is designed and developed by Bikash.\nIt is currently in an early development version.\nLedger helps you manage your personal and professional money, and automatically creates basic accounting books from your daily entries.`}
-        </Text>
-      </View>
-
-      {/* UPDATES SECTION */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Updates</Text>
-        <Text style={styles.infoText}>
-          You are currently using version 1.0.0 of the app.
-        </Text>
-        <Text style={[styles.infoText, { marginTop: 4 }]}>
-          In future, this section will show update notifications and details
-          about new features.
-        </Text>
-      </View>
-    </ScrollView>
+        {activeSection === 'menu' && renderMenu()}
+        {activeSection === 'account' && renderAccount()}
+        {activeSection === 'language' && renderLanguage()}
+        {activeSection === 'about' && renderAbout()}
+        {activeSection === 'updates' && renderUpdates()}
+      </ScrollView>
+    </>
   );
 }
 
@@ -516,6 +731,41 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.muted,
     marginBottom: 8,
+  },
+
+  // menu
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  menuTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.dark,
+  },
+  menuSubtitle: {
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 2,
+  },
+  menuArrow: {
+    marginLeft: 'auto',
+    fontSize: 18,
+    color: COLORS.muted,
+  },
+
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  backText: {
+    fontSize: 13,
+    color: COLORS.accent,
+    marginRight: 8,
   },
 
   // language
@@ -593,38 +843,8 @@ const styles = StyleSheet.create({
     color: COLORS.lightBg,
     fontWeight: '500',
   },
-  outlineButton: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: 'transparent',
-  },
-  outlineButtonText: {
-    fontSize: 12,
-    color: COLORS.dark,
-  },
 
-  bigLoginButton: {
-    marginTop: 4,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-  },
-  bigLoginButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  authPanel: {
-    marginTop: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 10,
-    backgroundColor: '#fff',
-  },
+  // auth tabs
   authTabsRow: {
     flexDirection: 'row',
     borderRadius: 999,
@@ -632,6 +852,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     padding: 2,
     marginBottom: 10,
+    marginTop: 8,
   },
   authTab: {
     flex: 1,
@@ -670,24 +891,111 @@ const styles = StyleSheet.create({
   oauthButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 6,
-    backgroundColor: '#4285F4', // Google blue
     borderWidth: 1,
-    borderColor: '#4285F4',
+    borderColor: COLORS.border,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 6,
   },
   oauthIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    textAlign: 'center',
+    textAlignVertical: 'center',
     marginRight: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: COLORS.border,
     fontWeight: '700',
-    fontSize: 15,
-    color: '#fff',
+    fontSize: 13,
   },
   oauthText: {
     fontSize: 13,
-    color: '#fff',
+    color: COLORS.dark,
+  },
+
+  // onboarding
+  onboardingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  onboardingCard: {
+    width: '100%',
+    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    padding: 16,
+  },
+  onboardingHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  onboardingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.dark,
+    flex: 1,
+    paddingRight: 8,
+  },
+  onboardingSkip: {
+    fontSize: 12,
+    color: COLORS.accent,
     fontWeight: '500',
+  },
+  onboardingBody: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  onboardingBodyText: {
+    fontSize: 14,
+    color: COLORS.dark,
+    lineHeight: 20,
+  },
+  onboardingDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  onboardingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ddd',
+    marginHorizontal: 3,
+  },
+  onboardingDotActive: {
+    backgroundColor: COLORS.primary,
+    width: 14,
+  },
+  onboardingFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  onboardingButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  onboardingPrimaryButton: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  onboardingButtonText: {
+    fontSize: 13,
+    color: COLORS.dark,
+  },
+  onboardingButtonTextDisabled: {
+    color: '#bbb',
+  },
+  onboardingButtonDisabled: {
+    borderColor: '#eee',
   },
 });

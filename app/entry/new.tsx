@@ -60,7 +60,7 @@ export default function NewEntryScreen() {
   const language: 'en' | 'ja' = settings.language ?? 'en';
 
   const getLedgerDisplayName = React.useCallback(
-    (ledger: import('../../src/models/ledger').Ledger | null | undefined) => {
+    (ledger: Ledger | null | undefined) => {
       if (!ledger) return '';
       return getLedgerLabel(ledger, language);
     },
@@ -106,8 +106,8 @@ export default function NewEntryScreen() {
   // ----- CREATE LEDGER POPUP STATE -----
   const [createCtx, setCreateCtx] = useState<CreateLedgerContext | null>(null);
   const [newLedgerName, setNewLedgerName] = useState('');
-  const [newLedgerPartyType, setNewLedgerPartyType] =
-    useState<'debtor' | 'creditor'>('debtor');
+  const [newLedgerNature, setNewLedgerNature] =
+    useState<Ledger['nature']>('Asset'); // Asset / Liability / Income / Expense
   const [newLedgerOpeningAmount, setNewLedgerOpeningAmount] = useState('');
   const [newLedgerOpeningType, setNewLedgerOpeningType] =
     useState<'Dr' | 'Cr'>('Dr');
@@ -170,7 +170,7 @@ export default function NewEntryScreen() {
   const openCreateLedger = (ctx: CreateLedgerContext) => {
     setCreateCtx(ctx);
     setNewLedgerName(ctx.name);
-    setNewLedgerPartyType('debtor');
+    setNewLedgerNature('Asset'); // default
     setNewLedgerOpeningAmount('');
     setNewLedgerOpeningType('Dr');
   };
@@ -188,12 +188,24 @@ export default function NewEntryScreen() {
     }
 
     try {
-      let groupName =
-        newLedgerPartyType === 'debtor'
-          ? 'Sundry Debtors'
-          : 'Sundry Creditors';
-      const nature =
-        newLedgerPartyType === 'debtor' ? 'Asset' : 'Liability';
+      const nature = newLedgerNature;
+      let groupName: string;
+      switch (nature) {
+        case 'Asset':
+          groupName = 'Assets';
+          break;
+        case 'Liability':
+          groupName = 'Liabilities';
+          break;
+        case 'Income':
+          groupName = 'Income';
+          break;
+        case 'Expense':
+          groupName = 'Expenses';
+          break;
+        default:
+          groupName = 'General';
+      }
 
       const existing = findExistingByExactName(name);
       if (existing) {
@@ -210,7 +222,7 @@ export default function NewEntryScreen() {
         name,
         groupName,
         nature,
-        isParty: true,
+        isParty: nature === 'Asset' || nature === 'Liability',
       });
 
       if (!newLedger) {
@@ -330,7 +342,7 @@ export default function NewEntryScreen() {
 
     try {
       if (cashDirection === 'out') {
-        // Other A/C Dr  To Cash/Bank
+        // Other A/c Dr  To Cash/Bank
         await addTransaction({
           date,
           debitLedgerId: usedOtherLedger.id,
@@ -340,7 +352,7 @@ export default function NewEntryScreen() {
           voucherType,
         });
       } else {
-        // Cash/Bank Dr  To Other A/C
+        // Cash/Bank Dr  To Other A/c
         await addTransaction({
           date,
           debitLedgerId: usedCashLedger.id,
@@ -530,6 +542,7 @@ export default function NewEntryScreen() {
     );
   };
 
+  // ---------- UI ----------
   return (
     <>
       <Stack.Screen options={{ title: 'Add Entry' }} />
@@ -588,8 +601,7 @@ export default function NewEntryScreen() {
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>Create New Ledger</Text>
               <Text style={styles.modalHint}>
-                This will be added as a party ledger with optional opening
-                balance.
+                This will be added as a ledger with optional opening balance.
               </Text>
 
               <Text style={[styles.label, { marginTop: 8 }]}>Ledger Name</Text>
@@ -599,48 +611,90 @@ export default function NewEntryScreen() {
                 onChangeText={setNewLedgerName}
               />
 
-              <Text style={[styles.label, { marginTop: 8 }]}>Party Type</Text>
+              <Text style={[styles.label, { marginTop: 8 }]}>Ledger Type</Text>
               <View style={styles.chipRow}>
                 <TouchableOpacity
                   style={[
                     styles.smallChip,
-                    newLedgerPartyType === 'debtor' &&
-                      styles.smallChipSelected,
+                    newLedgerNature === 'Asset' && styles.smallChipSelected,
                   ]}
                   onPress={() => {
-                    setNewLedgerPartyType('debtor');
+                    setNewLedgerNature('Asset');
                     setNewLedgerOpeningType('Dr');
                   }}
                 >
                   <Text
                     style={[
                       styles.smallChipText,
-                      newLedgerPartyType === 'debtor' &&
+                      newLedgerNature === 'Asset' &&
                         styles.smallChipTextSelected,
                     ]}
                   >
-                    Receivable (Debtor)
+                    Asset
                   </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[
                     styles.smallChip,
-                    newLedgerPartyType === 'creditor' &&
+                    newLedgerNature === 'Liability' &&
                       styles.smallChipSelected,
                   ]}
                   onPress={() => {
-                    setNewLedgerPartyType('creditor');
+                    setNewLedgerNature('Liability');
                     setNewLedgerOpeningType('Cr');
                   }}
                 >
                   <Text
                     style={[
                       styles.smallChipText,
-                      newLedgerPartyType === 'creditor' &&
+                      newLedgerNature === 'Liability' &&
                         styles.smallChipTextSelected,
                     ]}
                   >
-                    Payable (Creditor)
+                    Liability
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.smallChip,
+                    newLedgerNature === 'Income' && styles.smallChipSelected,
+                  ]}
+                  onPress={() => {
+                    setNewLedgerNature('Income');
+                    setNewLedgerOpeningType('Cr');
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.smallChipText,
+                      newLedgerNature === 'Income' &&
+                        styles.smallChipTextSelected,
+                    ]}
+                  >
+                    Income
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.smallChip,
+                    newLedgerNature === 'Expense' && styles.smallChipSelected,
+                  ]}
+                  onPress={() => {
+                    setNewLedgerNature('Expense');
+                    setNewLedgerOpeningType('Dr');
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.smallChipText,
+                      newLedgerNature === 'Expense' &&
+                        styles.smallChipTextSelected,
+                    ]}
+                  >
+                    Expense
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1231,6 +1285,7 @@ const styles = StyleSheet.create({
 
   chipRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap', // so 4 chips (Asset/Liability/Income/Expense) wrap nicely
     gap: 8,
     marginBottom: 10,
   },

@@ -37,10 +37,15 @@ type DataContextValue = {
   transactions: Transaction[];
   addTransaction: (input: NewTransactionInput) => Promise<void>;
   addLedger: (input: NewLedgerInput) => Promise<Ledger | null>;
-  reloadFromServer: () => Promise<void>;   // 👈 NEW
+  deleteTransaction: (id: string) => Promise<void>; // 👈 NEW
+  reloadFromServer: () => Promise<void>;
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
+
+// Backend URL yahi se lenge (same pattern as storage)
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
@@ -56,10 +61,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setLedgers(ledgers);
         setTransactions(transactions);
       } catch (err) {
-        console.warn(
-          'Failed to load data from backend, using seeds',
-          err
-        );
+        console.warn('Failed to load data from backend, using seeds', err);
         setLedgers(seedLedgers);
         setTransactions(seedTransactions);
       } finally {
@@ -67,10 +69,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    loadData();
+    void loadData();
   }, []);
 
-  // -------- RELOAD ALL DATA (manual refresh from Settings) ----------
+  // -------- RELOAD ALL DATA (manual refresh from Settings etc.) ----------
   const reloadFromServer = async (): Promise<void> => {
     try {
       console.log('[Data] manual reload from backend');
@@ -125,6 +127,35 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // -------- DELETE ENTRY (backend + refresh) ----------
+  const deleteTransaction = async (id: string): Promise<void> => {
+    try {
+      console.log('[Data] deleting entry', id);
+
+      const res = await fetch(`${API_URL}/entries/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        console.warn('[Data] delete entry failed', res.status);
+        throw new Error(`Delete failed: ${res.status}`);
+      }
+
+      // Delete ke baad fresh data
+      const { ledgers: nextLedgers, transactions: nextTx } =
+        await storage.loadInitialData();
+
+      setLedgers(nextLedgers);
+      setTransactions(nextTx);
+    } catch (err) {
+      console.warn('Failed to delete entry on backend', err);
+      throw err;
+    }
+  };
+
   if (!isHydrated) {
     return (
       <View
@@ -143,7 +174,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ ledgers, transactions, addTransaction, addLedger, reloadFromServer }}
+      value={{
+        ledgers,
+        transactions,
+        addTransaction,
+        addLedger,
+        deleteTransaction,
+        reloadFromServer,
+      }}
     >
       {children}
     </DataContext.Provider>
