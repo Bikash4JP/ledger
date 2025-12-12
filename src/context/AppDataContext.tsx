@@ -35,15 +35,20 @@ type NewLedgerInput = {
 type DataContextValue = {
   ledgers: Ledger[];
   transactions: Transaction[];
+
   addTransaction: (input: NewTransactionInput) => Promise<void>;
   addLedger: (input: NewLedgerInput) => Promise<Ledger | null>;
-  deleteTransaction: (id: string) => Promise<void>; // 👈 NEW
+  deleteTransaction: (id: string) => Promise<void>;
+
+  updateLedger: (id: string, input: NewLedgerInput) => Promise<Ledger | null>;
+  deleteLedger: (id: string) => Promise<void>;
+
   reloadFromServer: () => Promise<void>;
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
-// Backend URL yahi se lenge (same pattern as storage)
+// Backend URL
 const API_URL = 'http://3.107.197.46';
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -96,7 +101,67 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // -------- CREATE ENTRY (single line for now) ----------
+  // -------- UPDATE LEDGER (master edit) ----------
+  const updateLedger = async (
+    id: string,
+    input: NewLedgerInput,
+  ): Promise<Ledger | null> => {
+    try {
+      const res = await fetch(`${API_URL}/ledgers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+
+      if (!res.ok) {
+        console.warn('[Data] update ledger failed', res.status);
+        const body = await res.json().catch(() => null);
+        const msg =
+          body?.error ?? `Failed to update ledger (status ${res.status})`;
+        throw new Error(msg);
+      }
+
+      const updated: Ledger = await res.json();
+
+      setLedgers((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, ...updated } : l)),
+      );
+
+      return updated;
+    } catch (err) {
+      console.warn('Failed to update ledger on backend', err);
+      throw err;
+    }
+  };
+
+  // -------- DELETE LEDGER ----------
+  const deleteLedger = async (id: string): Promise<void> => {
+    try {
+      const res = await fetch(`${API_URL}/ledgers/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (res.status === 400) {
+        const body = await res.json().catch(() => null);
+        const msg =
+          body?.error ??
+          'This ledger has entries and cannot be deleted. Delete/reverse entries first.';
+        throw new Error(msg);
+      }
+
+      if (!res.ok && res.status !== 204) {
+        console.warn('[Data] delete ledger failed', res.status);
+        throw new Error(`Failed to delete ledger (status ${res.status})`);
+      }
+
+      setLedgers((prev) => prev.filter((l) => l.id !== id));
+    } catch (err) {
+      console.warn('Failed to delete ledger on backend', err);
+      throw err;
+    }
+  };
+
+  // -------- CREATE ENTRY ----------
   const addTransaction = async (input: NewTransactionInput): Promise<void> => {
     try {
       const entryPayload: EntryInput = {
@@ -115,7 +180,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       await storage.createEntry(entryPayload);
 
-      // Backend me new entry add ho gaya, ab fresh list le aate hain
       const { ledgers: nextLedgers, transactions: nextTx } =
         await storage.loadInitialData();
 
@@ -126,7 +190,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // -------- DELETE ENTRY (backend + refresh) ----------
+  // -------- DELETE ENTRY ----------
   const deleteTransaction = async (id: string): Promise<void> => {
     try {
       console.log('[Data] deleting entry', id);
@@ -138,12 +202,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
         },
       });
 
-      if (!res.ok) {
+      if (!res.ok && res.status !== 204) {
         console.warn('[Data] delete entry failed', res.status);
         throw new Error(`Delete failed: ${res.status}`);
       }
 
-      // Delete ke baad fresh data
       const { ledgers: nextLedgers, transactions: nextTx } =
         await storage.loadInitialData();
 
@@ -179,6 +242,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         addTransaction,
         addLedger,
         deleteTransaction,
+        updateLedger,
+        deleteLedger,
         reloadFromServer,
       }}
     >

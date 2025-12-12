@@ -1,14 +1,16 @@
 // app/ledger/[id].tsx
-import React, { useMemo, useState } from 'react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Alert,
   ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useData } from '../../src/context/AppDataContext';
@@ -22,6 +24,7 @@ const COLORS = {
   accent: '#2e9ff5',
   muted: '#777777',
   border: '#e0e0e0',
+  danger: '#d32f2f',
 };
 
 type LedgerLine = {
@@ -42,7 +45,7 @@ function formatAmount(value: number): string {
 export default function LedgerDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
-  const { ledgers, transactions } = useData();
+  const { ledgers, transactions, updateLedger, deleteLedger } = useData();
 
   const ledger = useMemo(
     () => ledgers.find((l: Ledger) => l.id === id),
@@ -51,6 +54,23 @@ export default function LedgerDetailScreen() {
 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+
+  // ---------- Ledger master modal state ----------
+  const [showMaster, setShowMaster] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editNature, setEditNature] = useState<Ledger['nature']>('Asset');
+  const [editIsParty, setEditIsParty] = useState<boolean>(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (ledger) {
+      setEditName(ledger.name);
+      setEditGroupName(ledger.groupName);
+      setEditNature(ledger.nature);
+      setEditIsParty(!!ledger.isParty);
+    }
+  }, [ledger]);
 
   const lines: LedgerLine[] = useMemo(() => {
     if (!ledger) return [];
@@ -78,14 +98,12 @@ export default function LedgerDetailScreen() {
 
     const mapped: LedgerLine[] = ledgerTx.map(mapLine);
 
-    // date filter (string compare works if YYYY-MM-DD)
     const filtered = mapped.filter((line) => {
       if (fromDate && line.date < fromDate) return false;
       if (toDate && line.date > toDate) return false;
       return true;
     });
 
-    // sort by date ascending, then id
     filtered.sort((a, b) => {
       if (a.date === b.date) return a.id.localeCompare(b.id);
       return a.date < b.date ? -1 : 1;
@@ -122,6 +140,101 @@ export default function LedgerDetailScreen() {
     );
   }
 
+  const handleOpenMaster = () => {
+    setShowMaster(true);
+  };
+
+  const handleSaveMaster = async () => {
+    if (!ledger) return;
+    const name = editName.trim();
+    const groupName = editGroupName.trim();
+
+    if (!name) {
+      Alert.alert('Validation', 'Please enter ledger name.');
+      return;
+    }
+    if (!groupName) {
+      Alert.alert('Validation', 'Please enter sub-category / group name.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await updateLedger(ledger.id, {
+        name,
+        groupName,
+        nature: editNature,
+        isParty: editIsParty,
+      });
+
+      Alert.alert('Saved', 'Ledger master updated successfully.');
+      setShowMaster(false);
+    } catch (err: any) {
+      console.error('[LedgerDetail] update failed', err);
+      Alert.alert(
+        'Error',
+        err?.message || 'Failed to update ledger. Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteLedger = () => {
+    if (!ledger) return;
+
+    Alert.alert(
+      'Delete Ledger?',
+      'This will delete the ledger master. You can only delete if it has no entries.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteLedger(ledger.id);
+              Alert.alert('Deleted', 'Ledger deleted.', [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace('/(tabs)/ledgers'),
+                },
+              ]);
+            } catch (err: any) {
+              console.error('[LedgerDetail] delete failed', err);
+              Alert.alert(
+                'Cannot delete',
+                err?.message ||
+                  'This ledger has entries or could not be deleted.',
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const renderNatureChip = (value: Ledger['nature'], label: string) => {
+    const selected = editNature === value;
+    return (
+      <TouchableOpacity
+        key={value}
+        style={[styles.natureChip, selected && styles.natureChipSelected]}
+        onPress={() => setEditNature(value)}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[
+            styles.natureChipText,
+            selected && styles.natureChipTextSelected,
+          ]}
+        >
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: ledger.name }} />
@@ -131,7 +244,12 @@ export default function LedgerDetailScreen() {
       >
         {/* Header summary */}
         <View style={styles.summaryCard}>
-          <Text style={styles.ledgerName}>{ledger.name}</Text>
+          <TouchableOpacity
+            onPress={handleOpenMaster}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.ledgerName}>{ledger.name}</Text>
+          </TouchableOpacity>
           <Text style={styles.ledgerGroup}>
             {ledger.groupName} · {ledger.nature}
           </Text>
@@ -140,7 +258,6 @@ export default function LedgerDetailScreen() {
             <View>
               <Text style={styles.balanceLabel}>Closing Balance</Text>
               <Text style={styles.balanceValue}>
-                {/* Closing balance approx = total Dr - total Cr for this ledger */}
                 {(() => {
                   const diff = totals.debit - totals.credit;
                   if (diff === 0) return '0.00';
@@ -191,8 +308,6 @@ export default function LedgerDetailScreen() {
               <TouchableOpacity
                 style={styles.exportButton}
                 onPress={() => {
-                  // TODO: Hook up to real PDF export later
-                  // For now just a placeholder.
                   console.log('Export ledger as PDF (future)');
                 }}
               >
@@ -209,10 +324,22 @@ export default function LedgerDetailScreen() {
             <Text style={[styles.colParticular, styles.tableHeaderText]}>
               Particulars
             </Text>
-            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>
+            <Text
+              style={[
+                styles.colAmount,
+                styles.tableHeaderText,
+                styles.right,
+              ]}
+            >
               Dr
             </Text>
-            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>
+            <Text
+              style={[
+                styles.colAmount,
+                styles.tableHeaderText,
+                styles.right,
+              ]}
+            >
               Cr
             </Text>
           </View>
@@ -265,14 +392,26 @@ export default function LedgerDetailScreen() {
                   <Text style={styles.totalLabel}>TOTAL</Text>
                 </View>
                 <View style={styles.amountCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                  <Text
+                    style={[
+                      styles.amountText,
+                      styles.totalAmount,
+                      styles.right,
+                    ]}
+                  >
                     {totals.debit.toLocaleString(undefined, {
                       minimumFractionDigits: 2,
                     })}
                   </Text>
                 </View>
                 <View style={styles.amountCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                  <Text
+                    style={[
+                      styles.amountText,
+                      styles.totalAmount,
+                      styles.right,
+                    ]}
+                  >
                     {totals.credit.toLocaleString(undefined, {
                       minimumFractionDigits: 2,
                     })}
@@ -283,6 +422,96 @@ export default function LedgerDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Ledger Master overlay */}
+      {showMaster && (
+        <View style={styles.overlay}>
+          <View style={styles.masterCard}>
+            <Text style={styles.masterTitle}>Ledger Master</Text>
+            <Text style={styles.masterHint}>
+              Edit name, category and sub-category for this ledger.
+            </Text>
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>
+              Ledger Name
+            </Text>
+            <TextInput
+              style={styles.masterInput}
+              value={editName}
+              onChangeText={setEditName}
+            />
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>
+              Category (Nature)
+            </Text>
+            <View style={styles.natureRow}>
+              {renderNatureChip('Asset', 'Asset')}
+              {renderNatureChip('Liability', 'Liability')}
+              {renderNatureChip('Income', 'Income')}
+              {renderNatureChip('Expense', 'Expense')}
+            </View>
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>
+              Sub-category / Group
+            </Text>
+            <TextInput
+              style={styles.masterInput}
+              value={editGroupName}
+              onChangeText={setEditGroupName}
+              placeholder="e.g. Sundry Creditors, Bank A/c, Rent Expenses"
+            />
+
+            <View style={styles.partyRow}>
+              <Text style={styles.masterLabel}>Treat as Party A/c</Text>
+              <Switch
+                value={editIsParty}
+                onValueChange={setEditIsParty}
+              />
+            </View>
+
+            <View style={styles.masterButtonsRow}>
+              <TouchableOpacity
+                style={[styles.masterButton, styles.masterDeleteButton]}
+                onPress={handleDeleteLedger}
+              >
+                <Text style={styles.masterDeleteText}>Delete</Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.masterButton, styles.masterCancelButton]}
+                  onPress={() => setShowMaster(false)}
+                >
+                  <Text style={styles.masterCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.masterButton,
+                    styles.masterSaveButton,
+                    saving && { opacity: 0.6 },
+                  ]}
+                  onPress={() => {
+                    if (!saving) {
+                      void handleSaveMaster();
+                    }
+                  }}
+                >
+                  <Text style={styles.masterSaveText}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <Text style={styles.masterInfoNote}>
+              Opening balance ka logic thoda sensitive hai (existing entries
+              ke saath adjust karna hota hai), isliye abhi yahan se direct
+              change nahi kar rahe. Opening balance ke liye abhi bhi journal
+              entry se adjust kar sakte ho.
+            </Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -290,7 +519,7 @@ export default function LedgerDetailScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.dark, // black outer like tab bar
+    backgroundColor: COLORS.dark,
   },
   container: {
     flex: 1,
@@ -513,6 +742,124 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
+    color: COLORS.muted,
+  },
+
+  // ---------- Master modal ----------
+  overlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  masterCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 14,
+  },
+  masterTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.dark,
+  },
+  masterHint: {
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 2,
+  },
+  masterLabel: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginBottom: 4,
+  },
+  masterInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    fontSize: 13,
+    color: COLORS.dark,
+    backgroundColor: COLORS.lightBg,
+  },
+  natureRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  natureChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  natureChipSelected: {
+    backgroundColor: COLORS.accent,
+    borderColor: COLORS.accent,
+  },
+  natureChipText: {
+    fontSize: 12,
+    color: COLORS.dark,
+  },
+  natureChipTextSelected: {
+    color: COLORS.lightBg,
+    fontWeight: '600',
+  },
+  partyRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  masterButtonsRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  masterButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+  },
+  masterDeleteButton: {
+    borderWidth: 1,
+    borderColor: '#ffe0e0',
+    backgroundColor: '#fff4f4',
+  },
+  masterDeleteText: {
+    fontSize: 13,
+    color: COLORS.danger,
+    fontWeight: '600',
+  },
+  masterCancelButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#ffffff',
+  },
+  masterCancelText: {
+    fontSize: 13,
+    color: COLORS.dark,
+  },
+  masterSaveButton: {
+    backgroundColor: COLORS.primary,
+  },
+  masterSaveText: {
+    fontSize: 13,
+    color: COLORS.lightBg,
+    fontWeight: '600',
+  },
+  masterInfoNote: {
+    marginTop: 10,
+    fontSize: 11,
     color: COLORS.muted,
   },
 });
