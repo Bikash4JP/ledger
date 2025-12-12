@@ -1,4 +1,4 @@
-// src/context/AppDataContext.tsx
+// ledger/src/context/AppDataContext.tsx
 import React, {
   createContext,
   useContext,
@@ -15,6 +15,7 @@ import type { Transaction, VoucherType } from '../models/transaction';
 
 import { storage } from '../storage';
 import type { EntryInput } from '../storage/types';
+import { useSettings } from './SettingsContext';
 
 export type NewTransactionInput = {
   date: string;
@@ -51,22 +52,45 @@ const DataContext = createContext<DataContextValue | undefined>(undefined);
 // Backend URL
 const API_URL = 'http://3.107.197.46';
 
+// 👇 yahan define kar rahe hain kitne standard ledgers demo mode me dikhane hain
+const DEMO_LEDGER_COUNT = 56;
+
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { settings } = useSettings();
+
+  // ✅ Sirf logged-in user ke liye backend data
+  const hasUser = !!settings.authProfile;
+
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // -------- INITIAL LOAD (backend → state, fallback = seeds) ----------
+  // -------- INITIAL LOAD (demo vs user mode) ----------
   useEffect(() => {
     const loadData = async () => {
       try {
-        console.log('[Data] loading from backend via storage');
-        const { ledgers, transactions } = await storage.loadInitialData();
-        setLedgers(ledgers);
-        setTransactions(transactions);
+        if (hasUser) {
+          console.log('[Data] initial load → backend via storage (user mode)');
+          const { ledgers, transactions } =
+            await storage.loadInitialData();
+          setLedgers(ledgers);
+          setTransactions(transactions);
+        } else {
+          console.log(
+            '[Data] initial load → demo seeds only (no logged-in user)',
+          );
+          // 👇 sirf pehle 56 ledgers demo me dikhayenge
+          const demoLedgers = seedLedgers.slice(0, DEMO_LEDGER_COUNT);
+          setLedgers(demoLedgers);
+          setTransactions(seedTransactions);
+        }
       } catch (err) {
-        console.warn('Failed to load data from backend, using seeds', err);
-        setLedgers(seedLedgers);
+        console.warn(
+          '[Data] Failed to load data, falling back to seeds',
+          err,
+        );
+        const demoLedgers = seedLedgers.slice(0, DEMO_LEDGER_COUNT);
+        setLedgers(demoLedgers);
         setTransactions(seedTransactions);
       } finally {
         setIsHydrated(true);
@@ -74,12 +98,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
     };
 
     void loadData();
-  }, []);
+  }, [hasUser]);
 
-  // -------- RELOAD ALL DATA (manual refresh from Settings etc.) ----------
+  // -------- RELOAD ALL DATA (Settings se manual refresh) ----------
   const reloadFromServer = async (): Promise<void> => {
     try {
-      console.log('[Data] manual reload from backend');
+      if (!hasUser) {
+        console.log('[Data] reload → demo seeds only (no logged-in user)');
+        const demoLedgers = seedLedgers.slice(0, DEMO_LEDGER_COUNT);
+        setLedgers(demoLedgers);
+        setTransactions(seedTransactions);
+        return;
+      }
+
+      console.log('[Data] manual reload from backend (user mode)');
       const { ledgers, transactions } = await storage.loadInitialData();
       setLedgers(ledgers);
       setTransactions(transactions);
@@ -89,7 +121,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // -------- CREATE LEDGER (backend + local state update) ----------
+  // -------- CREATE LEDGER ----------
   const addLedger = async (input: NewLedgerInput): Promise<Ledger | null> => {
     try {
       const created = await storage.createLedger(input);
@@ -101,7 +133,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // -------- UPDATE LEDGER (master edit) ----------
+  // -------- UPDATE LEDGER ----------
   const updateLedger = async (
     id: string,
     input: NewLedgerInput,
@@ -180,8 +212,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       await storage.createEntry(entryPayload);
 
-      const { ledgers: nextLedgers, transactions: nextTx } =
-        await storage.loadInitialData();
+      const {
+        ledgers: nextLedgers,
+        transactions: nextTx,
+      } = await storage.loadInitialData();
 
       setLedgers(nextLedgers);
       setTransactions(nextTx);
@@ -207,8 +241,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
         throw new Error(`Delete failed: ${res.status}`);
       }
 
-      const { ledgers: nextLedgers, transactions: nextTx } =
-        await storage.loadInitialData();
+      const {
+        ledgers: nextLedgers,
+        transactions: nextTx,
+      } = await storage.loadInitialData();
 
       setLedgers(nextLedgers);
       setTransactions(nextTx);

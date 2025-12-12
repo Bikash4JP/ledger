@@ -23,6 +23,7 @@ const COLORS = {
 export default function EntriesListScreen() {
   const router = useRouter();
   const { transactions, ledgers, deleteTransaction } = useData();
+  const normalizeDate = (value: string): string => value.substring(0, 10);
 
   const rows = useMemo(() => {
     const getLedgerName = (id: string) =>
@@ -35,7 +36,7 @@ export default function EntriesListScreen() {
       })
       .map((t) => ({
         id: t.id,
-        date: t.date,
+        date:normalizeDate(t.date),
         debitName: getLedgerName(t.debitLedgerId),
         creditName: getLedgerName(t.creditLedgerId),
         amount: t.amount,

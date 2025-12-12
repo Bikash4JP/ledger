@@ -1,19 +1,26 @@
 // app/(tabs)/entries.tsx
+import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 
-import type { Transaction } from '../../src/models/transaction';
 import type { Ledger } from '../../src/models/ledger';
+import type { Transaction } from '../../src/models/transaction';
+
+const normalizeDate = (value: string): string => {
+  if (!value) return value;
+  // "2025-12-11T00:00:00.000Z" → "2025-12-11"
+  if (value.length >= 10) return value.slice(0, 10);
+  return value;
+};
 
 const COLORS = {
   primary: '#ac0c79',
@@ -187,28 +194,30 @@ export default function EntriesScreen() {
   }, [ledgers]);
 
   const enhancedTx: EnhancedTx[] = useMemo(() => {
-    const list: EnhancedTx[] = transactions.map((t: Transaction) => {
-      const debit = ledgerMap[t.debitLedgerId];
-      const credit = ledgerMap[t.creditLedgerId];
+  const list: EnhancedTx[] = transactions.map((t: Transaction) => {
+    const debit = ledgerMap[t.debitLedgerId];
+    const credit = ledgerMap[t.creditLedgerId];
 
-      return {
-        ...t,
-        // 🔁 Standard ledger → JP, user-created ledger → as is
-        debitName: debit
-          ? getLedgerDisplayName(debit, lang)
-          : t.debitLedgerId,
-        creditName: credit
-          ? getLedgerDisplayName(credit, lang)
-          : t.creditLedgerId,
-      };
-    });
+    return {
+      ...t,
+      // yahan date clean karke store karenge
+      date: normalizeDate(t.date),
+      // 🔁 Standard ledger → JP, user-created ledger → as is
+      debitName: debit
+        ? getLedgerDisplayName(debit, lang)
+        : t.debitLedgerId,
+      creditName: credit
+        ? getLedgerDisplayName(credit, lang)
+        : t.creditLedgerId,
+    };
+  });
 
-    // Newest on top
-    return list.sort((a, b) => {
-      if (a.date === b.date) return b.id.localeCompare(a.id);
-      return a.date < b.date ? 1 : -1;
-    });
-  }, [transactions, ledgerMap, lang]);
+  // Newest on top
+  return list.sort((a, b) => {
+    if (a.date === b.date) return b.id.localeCompare(a.id);
+    return a.date < b.date ? 1 : -1;
+  });
+}, [transactions, ledgerMap, lang]);
 
   const filteredTx: EnhancedTx[] = useMemo(() => {
     return enhancedTx.filter((t) => {

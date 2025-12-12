@@ -87,7 +87,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setLanguage = (language: AppLanguage) => {
     setSettings((prev) => {
       const next: Settings = { ...prev, language };
-      saveSettings(next);
+      void saveSettings(next);
       return next;
     });
   };
@@ -98,9 +98,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         ...prev,
         syncEmail: email,
       };
-      saveSettings(next);
+      void saveSettings(next);
       // agar authProfile nahi hai to bhi header email set kar sakte
-      const effectiveEmail = next.authProfile?.email ?? next.syncEmail ?? null;
+      const effectiveEmail =
+        next.authProfile?.email ?? next.syncEmail ?? null;
       setCurrentUserEmail(effectiveEmail);
       return next;
     });
@@ -114,8 +115,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         // agar profile null hai to syncEmail ko as-is rehne do
         syncEmail: profile?.email ?? prev.syncEmail ?? null,
       };
-      saveSettings(next);
-      const effectiveEmail = next.authProfile?.email ?? next.syncEmail ?? null;
+      void saveSettings(next);
+      const effectiveEmail =
+        next.authProfile?.email ?? next.syncEmail ?? null;
       setCurrentUserEmail(effectiveEmail);
       return next;
     });
@@ -132,7 +134,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   if (!hydrated) {
-    // simple splash; tum chaho to yahan loader bhi daal sakte ho
+    // Simple splash; chaho to yahan loader bhi dikha sakte ho
     return <>{children}</>;
   }
 
@@ -145,8 +147,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
 export function useSettings(): SettingsContextValue {
   const ctx = useContext(SettingsContext);
+
   if (!ctx) {
-    throw new Error('useSettings must be used within SettingsProvider');
+    // ❗ Pehle yahan error throw ho raha tha, ab sirf warning + safe default
+    console.warn(
+      '[SettingsContext] useSettings called outside SettingsProvider. Using default settings (non-persistent).',
+    );
+
+    return {
+      settings: defaultSettings,
+      setLanguage: () => {
+        /* noop */
+      },
+      setSyncEmail: () => {
+        /* noop */
+      },
+      setAuthProfile: () => {
+        /* noop */
+      },
+    };
   }
+
   return ctx;
 }

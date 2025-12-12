@@ -62,6 +62,8 @@ export default function LedgerDetailScreen() {
   const [editNature, setEditNature] = useState<Ledger['nature']>('Asset');
   const [editIsParty, setEditIsParty] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
+  const normalizeDate = (value: string): string => value.substring(0, 10);
+
 
   useEffect(() => {
     if (ledger) {
@@ -88,7 +90,7 @@ export default function LedgerDetailScreen() {
 
       return {
         id: t.id,
-        date: t.date,
+        date:normalizeDate(t.date) ,
         particular: otherLedger ? otherLedger.name : otherLedgerId,
         remarks: t.narration || '',
         debit: isDebit ? t.amount : 0,

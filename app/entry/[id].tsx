@@ -137,6 +137,13 @@ export default function EntryDetailScreen() {
     }
     router.push({ pathname: '/ledger/[id]', params: { id: ledger.id } });
   };
+  const normalizeDate = (value: string): string => {
+  if (!value) return value;
+  if (value.length >= 10) return value.slice(0, 10);
+  return value;
+};
+
+
 
   return (
     <>
@@ -149,7 +156,8 @@ export default function EntryDetailScreen() {
           {/* Header */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.dateText}>{tx.date}</Text>
+              <Text style={styles.dateText}>{normalizeDate(tx.date)}</Text>
+
               <Text style={styles.voucherTypeText}>{tx.voucherType}</Text>
             </View>
             <Text style={styles.amountText}>
