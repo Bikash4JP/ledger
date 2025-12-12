@@ -44,8 +44,7 @@ type DataContextValue = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 // Backend URL yahi se lenge (same pattern as storage)
-const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_URL = 'http://3.107.197.46';
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
