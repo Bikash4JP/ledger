@@ -1,9 +1,8 @@
-// ledger/app/(tabs)/setting.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// app/(tabs)/setting.tsx
+import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,36 +24,6 @@ const COLORS = {
   border: '#e0e0e0',
 };
 
-const ONBOARDING_KEY = '@ledger_onboarding_seen_v1';
-
-const ONBOARDING_SLIDES = [
-  {
-    key: 'welcome',
-    title: 'Welcome to Ledger',
-    body: 'Track your personal and business money in one simple app.',
-  },
-  {
-    key: 'entries',
-    title: 'Quick Entries',
-    body: 'Add cash in / out in seconds and keep your daily flow updated.',
-  },
-  {
-    key: 'books',
-    title: 'Automatic Books',
-    body: 'Ledger automatically prepares basic accounting books from your entries.',
-  },
-  {
-    key: 'cloud',
-    title: 'Cloud Ready',
-    body: 'Your entries are stored per account. Login from any device to see your data.',
-  },
-  {
-    key: 'privacy',
-    title: 'Your Data, Your Control',
-    body: 'Everything is designed for privacy and simple control by you.',
-  },
-];
-
 type SettingsSection = 'menu' | 'account' | 'language' | 'about' | 'updates';
 
 export default function SettingsScreen() {
@@ -65,48 +34,17 @@ export default function SettingsScreen() {
   const authProfile = settings.authProfile;
   const isLoggedIn = !!authProfile;
 
-  const [activeSection, setActiveSection] = useState<SettingsSection>('menu');
+  const params = useLocalSearchParams<{ section?: string }>();
 
-  // -------- Onboarding tutorial state --------
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingIndex, setOnboardingIndex] = useState(0);
+  const [activeSection, setActiveSection] =
+    useState<SettingsSection>('menu');
 
+  // Agar ?section=account hai to direct Account me khole
   useEffect(() => {
-    const loadOnboarding = async () => {
-      try {
-        const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
-        if (!seen) {
-          setShowOnboarding(true);
-        }
-      } catch (e) {
-        console.warn('Failed to read onboarding flag', e);
-      }
-    };
-    loadOnboarding();
-  }, []);
-
-  const finishOnboarding = async () => {
-    try {
-      await AsyncStorage.setItem(ONBOARDING_KEY, '1');
-    } catch (e) {
-      console.warn('Failed to save onboarding flag', e);
+    if (params.section === 'account') {
+      setActiveSection('account');
     }
-    setShowOnboarding(false);
-  };
-
-  const goNextSlide = () => {
-    if (onboardingIndex < ONBOARDING_SLIDES.length - 1) {
-      setOnboardingIndex((i) => i + 1);
-    } else {
-      finishOnboarding();
-    }
-  };
-
-  const goPrevSlide = () => {
-    if (onboardingIndex > 0) {
-      setOnboardingIndex((i) => i - 1);
-    }
-  };
+  }, [params.section]);
 
   // -------- Auth form state --------
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -247,8 +185,6 @@ export default function SettingsScreen() {
       },
     ]);
   };
-
-  const currentSlide = ONBOARDING_SLIDES[onboardingIndex];
 
   // ---------- SECTION VIEWS ----------
 
@@ -597,96 +533,21 @@ export default function SettingsScreen() {
 
   // ---------- RENDER ROOT ----------
   return (
-    <>
-      {/* Onboarding modal (first time only) */}
-      <Modal
-        visible={showOnboarding}
-        animationType="fade"
-        transparent
-        statusBarTranslucent
-      >
-        <View style={styles.onboardingOverlay}>
-          <View style={styles.onboardingCard}>
-            <View style={styles.onboardingHeaderRow}>
-              <Text style={styles.onboardingTitle}>{currentSlide.title}</Text>
-              <TouchableOpacity onPress={finishOnboarding}>
-                <Text style={styles.onboardingSkip}>Skip</Text>
-              </TouchableOpacity>
-            </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+    >
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>{t('settings.title')}</Text>
+        <Text style={styles.subtitle}>{t('settings.subtitle')}</Text>
+      </View>
 
-            <View style={styles.onboardingBody}>
-              <Text style={styles.onboardingBodyText}>
-                {currentSlide.body}
-              </Text>
-            </View>
-
-            <View style={styles.onboardingDotsRow}>
-              {ONBOARDING_SLIDES.map((s, idx) => (
-                <View
-                  key={s.key}
-                  style={[
-                    styles.onboardingDot,
-                    idx === onboardingIndex && styles.onboardingDotActive,
-                  ]}
-                />
-              ))}
-            </View>
-
-            <View style={styles.onboardingFooterRow}>
-              <TouchableOpacity
-                disabled={onboardingIndex === 0}
-                onPress={goPrevSlide}
-                style={[
-                  styles.onboardingButton,
-                  onboardingIndex === 0 && styles.onboardingButtonDisabled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.onboardingButtonText,
-                    onboardingIndex === 0 &&
-                      styles.onboardingButtonTextDisabled,
-                  ]}
-                >
-                  Prev
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={goNextSlide}
-                style={[
-                  styles.onboardingButton,
-                  styles.onboardingPrimaryButton,
-                ]}
-              >
-                <Text style={[styles.onboardingButtonText, { color: '#fff' }]}>
-                  {onboardingIndex === ONBOARDING_SLIDES.length - 1
-                    ? 'Get started'
-                    : 'Next'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Main content */}
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-      >
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>{t('settings.title')}</Text>
-          <Text style={styles.subtitle}>{t('settings.subtitle')}</Text>
-        </View>
-
-        {activeSection === 'menu' && renderMenu()}
-        {activeSection === 'account' && renderAccount()}
-        {activeSection === 'language' && renderLanguage()}
-        {activeSection === 'about' && renderAbout()}
-        {activeSection === 'updates' && renderUpdates()}
-      </ScrollView>
-    </>
+      {activeSection === 'menu' && renderMenu()}
+      {activeSection === 'account' && renderAccount()}
+      {activeSection === 'language' && renderLanguage()}
+      {activeSection === 'about' && renderAbout()}
+      {activeSection === 'updates' && renderUpdates()}
+    </ScrollView>
   );
 }
 
@@ -914,88 +775,5 @@ const styles = StyleSheet.create({
   oauthText: {
     fontSize: 13,
     color: COLORS.dark,
-  },
-
-  // onboarding
-  onboardingOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  onboardingCard: {
-    width: '100%',
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    padding: 16,
-  },
-  onboardingHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  onboardingTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.dark,
-    flex: 1,
-    paddingRight: 8,
-  },
-  onboardingSkip: {
-    fontSize: 12,
-    color: COLORS.accent,
-    fontWeight: '500',
-  },
-  onboardingBody: {
-    marginTop: 16,
-    marginBottom: 16,
-  },
-  onboardingBodyText: {
-    fontSize: 14,
-    color: COLORS.dark,
-    lineHeight: 20,
-  },
-  onboardingDotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 12,
-    marginTop: 4,
-  },
-  onboardingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ddd',
-    marginHorizontal: 3,
-  },
-  onboardingDotActive: {
-    backgroundColor: COLORS.primary,
-    width: 14,
-  },
-  onboardingFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  onboardingButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  onboardingPrimaryButton: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  onboardingButtonText: {
-    fontSize: 13,
-    color: COLORS.dark,
-  },
-  onboardingButtonTextDisabled: {
-    color: '#bbb',
-  },
-  onboardingButtonDisabled: {
-    borderColor: '#eee',
   },
 });

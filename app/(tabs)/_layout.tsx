@@ -1,7 +1,7 @@
 // app/(tabs)/_layout.tsx
-import React from 'react';
-import { Tabs } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Tabs, useRouter } from 'expo-router';
+import React from 'react';
 import { useSettings } from '../../src/context/SettingsContext';
 
 const TAB_COLORS = {
@@ -30,8 +30,28 @@ const TAB_LABELS = {
 
 export default function TabsLayout() {
   const { settings } = useSettings();
+  const router = useRouter();
   const lang = settings.language === 'ja' ? 'ja' : 'en';
   const labels = TAB_LABELS[lang];
+
+  const isLoggedIn = !!settings.authProfile;
+
+  const redirectToLoginTab = () => {
+    router.push({
+      pathname: '/(tabs)/setting',
+      params: { section: 'account' },
+    } as any);
+  };
+
+  // Common listener for protected tabs
+  const protectedTabListeners = {
+    tabPress: (e: any) => {
+      if (!isLoggedIn) {
+        e.preventDefault();
+        redirectToLoginTab();
+      }
+    },
+  };
 
   return (
     <Tabs
@@ -65,6 +85,7 @@ export default function TabsLayout() {
             <Ionicons name="list-outline" size={size} color={color} />
           ),
         }}
+        listeners={protectedTabListeners}
       />
       <Tabs.Screen
         name="ledgers"
@@ -78,6 +99,7 @@ export default function TabsLayout() {
             />
           ),
         }}
+        listeners={protectedTabListeners}
       />
       <Tabs.Screen
         name="reports"
@@ -91,8 +113,8 @@ export default function TabsLayout() {
             />
           ),
         }}
+        listeners={protectedTabListeners}
       />
-      {/* 🔧 yahan change: "settings" → "setting" */}
       <Tabs.Screen
         name="setting"
         options={{
