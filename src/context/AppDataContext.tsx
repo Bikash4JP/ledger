@@ -13,6 +13,7 @@ import { seedTransactions } from '../data/seedTransactions';
 import type { Ledger } from '../models/ledger';
 import type { Transaction, VoucherType } from '../models/transaction';
 
+import { getCurrentUserEmail } from '../config/userIdentity';
 import { storage } from '../storage';
 import type { EntryInput } from '../storage/types';
 import { useSettings } from './SettingsContext';
@@ -71,8 +72,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       try {
         if (hasUser) {
           console.log('[Data] initial load → backend via storage (user mode)');
-          const { ledgers, transactions } =
-            await storage.loadInitialData();
+          const { ledgers, transactions } = await storage.loadInitialData();
           setLedgers(ledgers);
           setTransactions(transactions);
         } else {
@@ -227,18 +227,40 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // -------- DELETE ENTRY ----------
   const deleteTransaction = async (id: string): Promise<void> => {
     try {
-      console.log('[Data] deleting entry', id);
+      // 🔎 Pehle local state se entryId nikaalo
+      const localTx: any =
+        transactions.find((t: Transaction) => t.id === id) ?? null;
 
-      const res = await fetch(`${API_URL}/entries/${id}`, {
+      // Backend ko jo ID chahiye: entryId (agar available), warna jo UI se aaya
+      const entryId: string = localTx?.entryId ?? id;
+
+      console.log('[Data] deleting entry', id, '→ entryId:', entryId);
+
+      const email = getCurrentUserEmail();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (email) {
+        headers['x-user-email'] = email;
+      }
+
+      const res = await fetch(`${API_URL}/entries/${entryId}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
 
       if (!res.ok && res.status !== 204) {
-        console.warn('[Data] delete entry failed', res.status);
-        throw new Error(`Delete failed: ${res.status}`);
+        let msg = `Delete failed: ${res.status}`;
+
+        try {
+          const body = await res.json();
+          if (body?.error) msg = body.error;
+        } catch {
+          // JSON parse error ignore
+        }
+
+        console.warn('[Data] delete entry failed', res.status, msg);
+        throw new Error(msg);
       }
 
       const {
