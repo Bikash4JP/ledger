@@ -1,4 +1,3 @@
-// app/(tabs)/entries.tsx
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
@@ -164,7 +163,10 @@ const SYSTEM_LEDGER_JA: Record<string, string> = {
 };
 
 // Helper: get display name based on language
-function getLedgerDisplayName(ledger: Ledger | undefined, lang: Language): string {
+function getLedgerDisplayName(
+  ledger: Ledger | undefined,
+  lang: Language,
+): string {
   if (!ledger) return '';
   if (lang === 'ja') {
     return SYSTEM_LEDGER_JA[ledger.name] ?? ledger.name;
@@ -194,30 +196,30 @@ export default function EntriesScreen() {
   }, [ledgers]);
 
   const enhancedTx: EnhancedTx[] = useMemo(() => {
-  const list: EnhancedTx[] = transactions.map((t: Transaction) => {
-    const debit = ledgerMap[t.debitLedgerId];
-    const credit = ledgerMap[t.creditLedgerId];
+    const list: EnhancedTx[] = transactions.map((t: Transaction) => {
+      const debit = ledgerMap[t.debitLedgerId];
+      const credit = ledgerMap[t.creditLedgerId];
 
-    return {
-      ...t,
-      // yahan date clean karke store karenge
-      date: normalizeDate(t.date),
-      // 🔁 Standard ledger → JP, user-created ledger → as is
-      debitName: debit
-        ? getLedgerDisplayName(debit, lang)
-        : t.debitLedgerId,
-      creditName: credit
-        ? getLedgerDisplayName(credit, lang)
-        : t.creditLedgerId,
-    };
-  });
+      return {
+        ...t,
+        // yahan date clean karke store karenge
+        date: normalizeDate(t.date),
+        // 🔁 Standard ledger → JP, user-created ledger → as is
+        debitName: debit
+          ? getLedgerDisplayName(debit, lang)
+          : t.debitLedgerId,
+        creditName: credit
+          ? getLedgerDisplayName(credit, lang)
+          : t.creditLedgerId,
+      };
+    });
 
-  // Newest on top
-  return list.sort((a, b) => {
-    if (a.date === b.date) return b.id.localeCompare(a.id);
-    return a.date < b.date ? 1 : -1;
-  });
-}, [transactions, ledgerMap, lang]);
+    // Newest on top
+    return list.sort((a, b) => {
+      if (a.date === b.date) return b.id.localeCompare(a.id);
+      return a.date < b.date ? 1 : -1;
+    });
+  }, [transactions, ledgerMap, lang]);
 
   const filteredTx: EnhancedTx[] = useMemo(() => {
     return enhancedTx.filter((t) => {
@@ -263,7 +265,11 @@ export default function EntriesScreen() {
   };
 
   const goToAddEntry = () => {
-    router.push({ pathname: '/entry/new' });
+    // Ab default cash-book tab ko open karne ke liye param bhej rahe hain
+    router.push({
+      pathname: '/entry/new',
+      params: { tab: 'cash' },
+    } as any);
   };
 
   const openEntryDetail = (id: string) => {
@@ -279,7 +285,7 @@ export default function EntriesScreen() {
           <Text style={styles.subtitle}>{texts.subtitle}</Text>
         </View>
         <TouchableOpacity style={styles.addButton} onPress={goToAddEntry}>
-          <Text style={styles.addButtonText}>+ Add</Text>
+          <Text style={styles.addButtonText}>+ Add Entry</Text>
         </TouchableOpacity>
       </View>
 

@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -12,6 +13,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 import { useData } from '../../src/context/AppDataContext';
 import type { Ledger } from '../../src/models/ledger';
@@ -23,7 +29,7 @@ const COLORS = {
   lightBg: '#ffffff',
   accent: '#2e9ff5',
   muted: '#777777',
-  border: '#e0e0e0',
+  border: '#d0d0d0',
   danger: '#d32f2f',
 };
 
@@ -42,6 +48,24 @@ function formatAmount(value: number): string {
   })}`;
 }
 
+// Small helper: YYYY-MM-DD string → Date (fallback = today)
+function parseDateString(value: string): Date {
+  if (!value) return new Date();
+  const [y, m, d] = value.split('-').map((v) => parseInt(v, 10));
+  if (!y || !m || !d) return new Date();
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return new Date();
+  return dt;
+}
+
+// Helper: Date → YYYY-MM-DD
+function formatDateToInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function LedgerDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -55,6 +79,13 @@ export default function LedgerDetailScreen() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
+  // Calendar state
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerTarget, setDatePickerTarget] = useState<'from' | 'to'>(
+    'from',
+  );
+  const [pickerDate, setPickerDate] = useState<Date>(new Date());
+
   // ---------- Ledger master modal state ----------
   const [showMaster, setShowMaster] = useState(false);
   const [editName, setEditName] = useState('');
@@ -62,8 +93,8 @@ export default function LedgerDetailScreen() {
   const [editNature, setEditNature] = useState<Ledger['nature']>('Asset');
   const [editIsParty, setEditIsParty] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
-  const normalizeDate = (value: string): string => value.substring(0, 10);
 
+  const normalizeDate = (value: string): string => value.substring(0, 10);
 
   useEffect(() => {
     if (ledger) {
@@ -90,7 +121,7 @@ export default function LedgerDetailScreen() {
 
       return {
         id: t.id,
-        date:normalizeDate(t.date) ,
+        date: normalizeDate(t.date),
         particular: otherLedger ? otherLedger.name : otherLedgerId,
         remarks: t.narration || '',
         debit: isDebit ? t.amount : 0,
@@ -237,6 +268,207 @@ export default function LedgerDetailScreen() {
     );
   };
 
+  const closingDiff = totals.debit - totals.credit;
+  const closingBalanceText =
+    closingDiff === 0
+      ? '0.00'
+      : `${formatAmount(Math.abs(closingDiff))} ${
+          closingDiff > 0 ? 'Dr' : 'Cr'
+        }`;
+
+  // --------- Date picker helpers ----------
+  const openDatePicker = (target: 'from' | 'to') => {
+    setDatePickerTarget(target);
+    const base =
+      target === 'from'
+        ? parseDateString(fromDate)
+        : parseDateString(toDate);
+    setPickerDate(base);
+    setShowDatePicker(true);
+  };
+
+  const handleDateChange = (event: any, date?: Date) => {
+    // Android par picker close kar dete hain
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+
+    if (!date || event?.type !== 'set') {
+      return;
+    }
+
+    const value = formatDateToInput(date);
+    if (datePickerTarget === 'from') {
+      setFromDate(value);
+    } else {
+      setToDate(value);
+    }
+  };
+
+  // --------- PDF Export ----------
+  const handleExportPdf = async () => {
+    try {
+      if (lines.length === 0) {
+        Alert.alert('Export', 'No entries for this period to export.');
+        return;
+      }
+
+      const safeName = ledger.name.replace(/[^\w\-]+/g, '_') || 'ledger';
+      const fromLabel = fromDate || 'start';
+      const toLabel = toDate || 'today';
+      const fileName = `${safeName}_${fromLabel}_${toLabel}.pdf`;
+
+      // Simple HTML for PDF (matching table-ish style)
+      const rowsHtml = lines
+        .map(
+          (line) => `
+        <tr>
+          <td>${line.date}</td>
+          <td>
+            <strong>${line.particular}</strong><br/>
+            ${line.remarks ? `<span style="font-size:10px;color:#666;">${line.remarks}</span>` : ''}
+          </td>
+          <td style="text-align:right;">
+            ${line.debit
+              ? line.debit.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                })
+              : ''}
+          </td>
+          <td style="text-align:right;">
+            ${line.credit
+              ? line.credit.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                })
+              : ''}
+          </td>
+        </tr>
+      `,
+        )
+        .join('\n');
+
+      const html = `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Ledger Statement</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                font-size: 11px;
+                color: #111;
+                padding: 16px;
+              }
+              h1, h2, h3 { margin: 0; padding: 0; }
+              .app-name { font-size: 10px; color: #777; text-align:center; }
+              .stmt-title { font-size: 13px; font-weight: 700; text-align:center; margin-top: 2px; letter-spacing: 1px; }
+              .ledger-title { font-size: 18px; font-weight: 700; text-align:center; margin-top: 8px; }
+              .ledger-meta { font-size: 11px; text-align:center; color:#777; margin-top: 2px; }
+              .period { font-size: 10px; text-align:center; margin-top: 4px; }
+              .closing { font-size: 10px; text-align:center; margin-top: 2px; }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 12px;
+              }
+              thead tr:first-child {
+                border-top: 1px solid #000;
+                border-bottom: 1px solid #000;
+              }
+              th, td {
+                padding: 4px 3px;
+                border-bottom: 0.5px solid #ddd;
+              }
+              th {
+                font-size: 10px;
+                text-align: left;
+              }
+              .amount { text-align: right; }
+              tfoot td {
+                border-top: 1px solid #000;
+                font-weight: 700;
+                background: #fdf7fb;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="app-name">Budget Ledger</div>
+            <div class="stmt-title">LEDGER STATEMENT</div>
+            <div class="ledger-title">${ledger.name}</div>
+            <div class="ledger-meta">${ledger.groupName} · ${ledger.nature}</div>
+            <div class="period">
+              Period: ${fromDate || 'Beginning'} ～ ${toDate || 'Today'}
+            </div>
+            <div class="closing">
+              Closing balance: ${closingBalanceText}
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:18%;">Date</th>
+                  <th style="width:46%;">Particulars</th>
+                  <th style="width:18%; text-align:right;">Dr</th>
+                  <th style="width:18%; text-align:right;">Cr</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td></td>
+                  <td>TOTAL</td>
+                  <td class="amount">
+                    ${totals.debit.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                    })}
+                  </td>
+                  <td class="amount">
+                    ${totals.credit.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                    })}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+
+      let targetUri = uri;
+      const dir = FileSystem.cacheDirectory; // legacy API
+      if (dir) {
+        const newPath = dir + fileName;
+        await FileSystem.moveAsync({ from: uri, to: newPath });
+        targetUri = newPath;
+      }
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert(
+          'Export',
+          `PDF created at: ${targetUri}\n(Sharing is not available on this device)`,
+        );
+        return;
+      }
+
+      await Sharing.shareAsync(targetUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Share ledger statement PDF',
+      });
+    } catch (err) {
+      console.error('[LedgerDetail] PDF export failed', err);
+      Alert.alert(
+        'Error',
+        'Failed to export ledger as PDF. Please try again.',
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: ledger.name }} />
@@ -244,54 +476,66 @@ export default function LedgerDetailScreen() {
         style={styles.container}
         contentContainerStyle={styles.content}
       >
-        {/* Header summary */}
-        <View style={styles.summaryCard}>
-          <TouchableOpacity
-            onPress={handleOpenMaster}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.ledgerName}>{ledger.name}</Text>
+        {/* Printed-style header */}
+        <View style={styles.printHeaderCard}>
+          <Text style={styles.appNameText}>Budget Ledger</Text>
+          <Text style={styles.statementTitle}>LEDGER STATEMENT</Text>
+
+          <TouchableOpacity onPress={handleOpenMaster} activeOpacity={0.7}>
+            <Text style={styles.ledgerTitleText}>{ledger.name}</Text>
           </TouchableOpacity>
-          <Text style={styles.ledgerGroup}>
+
+          <Text style={styles.ledgerMetaText}>
             {ledger.groupName} · {ledger.nature}
           </Text>
 
-          <View style={styles.balanceRow}>
-            <View>
-              <Text style={styles.balanceLabel}>Closing Balance</Text>
-              <Text style={styles.balanceValue}>
-                {(() => {
-                  const diff = totals.debit - totals.credit;
-                  if (diff === 0) return '0.00';
-                  const type = diff > 0 ? 'Dr' : 'Cr';
-                  return `${formatAmount(Math.abs(diff))} ${type}`;
-                })()}
+          <View style={styles.headerBottomRow}>
+            <Text style={styles.headerSmallLabel}>
+              Closing balance:{' '}
+              <Text style={styles.headerBalanceText}>
+                {closingBalanceText}
               </Text>
-            </View>
+            </Text>
           </View>
         </View>
 
-        {/* Period filters */}
+        {/* Period filters with calendar pickers */}
         <View style={styles.filterCard}>
           <Text style={styles.filterTitle}>Period</Text>
           <View style={styles.filterRow}>
             <View style={styles.filterCol}>
-              <Text style={styles.filterLabel}>From (YYYY-MM-DD)</Text>
-              <TextInput
-                style={styles.filterInput}
-                value={fromDate}
-                onChangeText={setFromDate}
-                placeholder="2025-01-01"
-              />
+              <Text style={styles.filterLabel}>From</Text>
+              <TouchableOpacity
+                style={styles.filterInputButton}
+                onPress={() => openDatePicker('from')}
+              >
+                <Text
+                  style={
+                    fromDate
+                      ? styles.filterInputText
+                      : styles.filterInputPlaceholder
+                  }
+                >
+                  {fromDate || 'Select date'}
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.filterCol}>
-              <Text style={styles.filterLabel}>To (YYYY-MM-DD)</Text>
-              <TextInput
-                style={styles.filterInput}
-                value={toDate}
-                onChangeText={setToDate}
-                placeholder="2025-12-31"
-              />
+              <Text style={styles.filterLabel}>To</Text>
+              <TouchableOpacity
+                style={styles.filterInputButton}
+                onPress={() => openDatePicker('to')}
+              >
+                <Text
+                  style={
+                    toDate
+                      ? styles.filterInputText
+                      : styles.filterInputPlaceholder
+                  }
+                >
+                  {toDate || 'Select date'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -310,7 +554,7 @@ export default function LedgerDetailScreen() {
               <TouchableOpacity
                 style={styles.exportButton}
                 onPress={() => {
-                  console.log('Export ledger as PDF (future)');
+                  void handleExportPdf();
                 }}
               >
                 <Text style={styles.exportButtonText}>Export PDF</Text>
@@ -319,8 +563,13 @@ export default function LedgerDetailScreen() {
           </View>
         </View>
 
-        {/* Ledger table */}
+        {/* Ledger table with double top border like Excel */}
         <View style={styles.tableCard}>
+          <View style={styles.tableTopBorders}>
+            <View style={styles.tableTopLine} />
+            <View style={[styles.tableTopLine, { marginTop: 2 }]} />
+          </View>
+
           <View style={styles.tableHeader}>
             <Text style={[styles.colDate, styles.tableHeaderText]}>Date</Text>
             <Text style={[styles.colParticular, styles.tableHeaderText]}>
@@ -359,7 +608,9 @@ export default function LedgerDetailScreen() {
                   </View>
 
                   <View style={styles.particularCell}>
-                    <Text style={styles.particularText}>{line.particular}</Text>
+                    <Text style={styles.particularText}>
+                      {line.particular}
+                    </Text>
                     {line.remarks ? (
                       <Text style={styles.remarksText}>{line.remarks}</Text>
                     ) : null}
@@ -425,6 +676,16 @@ export default function LedgerDetailScreen() {
         </View>
       </ScrollView>
 
+      {/* DateTimePicker (OS-wise inline / modal) */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={pickerDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          onChange={handleDateChange}
+        />
+      )}
+
       {/* Ledger Master overlay */}
       {showMaster && (
         <View style={styles.overlay}>
@@ -465,10 +726,7 @@ export default function LedgerDetailScreen() {
 
             <View style={styles.partyRow}>
               <Text style={styles.masterLabel}>Treat as Party A/c</Text>
-              <Switch
-                value={editIsParty}
-                onValueChange={setEditIsParty}
-              />
+              <Switch value={editIsParty} onValueChange={setEditIsParty} />
             </View>
 
             <View style={styles.masterButtonsRow}>
@@ -506,10 +764,10 @@ export default function LedgerDetailScreen() {
             </View>
 
             <Text style={styles.masterInfoNote}>
-              Opening balance ka logic thoda sensitive hai (existing entries
-              ke saath adjust karna hota hai), isliye abhi yahan se direct
-              change nahi kar rahe. Opening balance ke liye abhi bhi journal
-              entry se adjust kar sakte ho.
+              Opening balance ka logic thoda sensitive hai (existing entries ke
+              saath adjust karna hota hai), isliye abhi yahan se direct change
+              nahi kar rahe. Opening balance ke liye abhi bhi journal entry se
+              adjust kar sakte ho.
             </Text>
           </View>
         </View>
@@ -555,40 +813,57 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  summaryCard: {
+  // Header styled like printed ledger
+  printHeaderCard: {
     borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 12,
-    backgroundColor: '#fdf7fb',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
     marginBottom: 12,
   },
-  ledgerName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.dark,
+  appNameText: {
+    fontSize: 11,
+    color: COLORS.muted,
+    textAlign: 'center',
   },
-  ledgerGroup: {
+  statementTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.dark,
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 1.2,
+  },
+  ledgerTitleText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.dark,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  ledgerMetaText: {
     fontSize: 12,
     color: COLORS.muted,
+    textAlign: 'center',
     marginTop: 2,
   },
-  balanceRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  headerBottomRow: {
+    marginTop: 8,
+    alignItems: 'center',
   },
-  balanceLabel: {
+  headerSmallLabel: {
     fontSize: 11,
     color: COLORS.muted,
   },
-  balanceValue: {
-    fontSize: 15,
+  headerBalanceText: {
+    fontSize: 12,
     fontWeight: '700',
     color: COLORS.primary,
-    marginTop: 2,
   },
 
+  // Filter card + calendar
   filterCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -615,15 +890,21 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginBottom: 3,
   },
-  filterInput: {
+  filterInputButton: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    backgroundColor: COLORS.lightBg,
+  },
+  filterInputText: {
     fontSize: 12,
     color: COLORS.dark,
-    backgroundColor: COLORS.lightBg,
+  },
+  filterInputPlaceholder: {
+    fontSize: 12,
+    color: '#aaaaaa',
   },
   filterActionsRow: {
     flexDirection: 'row',
@@ -663,7 +944,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.lightBg,
-    padding: 8,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 8,
+  },
+  tableTopBorders: {
+    marginBottom: 6,
+  },
+  tableTopLine: {
+    height: 1,
+    backgroundColor: '#000000',
+    width: '100%',
   },
   tableHeader: {
     flexDirection: 'row',
@@ -683,7 +974,7 @@ const styles = StyleSheet.create({
   },
   tableHeaderText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: COLORS.dark,
   },
   tableRow: {
@@ -721,7 +1012,7 @@ const styles = StyleSheet.create({
   },
   tableFooterLine: {
     height: 1,
-    backgroundColor: COLORS.border,
+    backgroundColor: '#000000',
     marginTop: 4,
     marginBottom: 4,
   },

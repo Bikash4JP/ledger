@@ -1,4 +1,3 @@
-// app/(tabs)/index.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -210,7 +209,11 @@ export default function HomeScreen() {
 
   const handleAddEntry = () => {
     requireAuth(() => {
-      router.push('/entry/new' as any);
+      // yahan bhi same param → default Cash Book tab
+      router.push({
+        pathname: '/entry/new',
+        params: { tab: 'cash' },
+      } as any);
     });
   };
 
@@ -307,7 +310,10 @@ export default function HomeScreen() {
       </Modal>
 
       {/* 🏠 Main home content */}
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
         {/* Header */}
         <View style={styles.headerBox}>
           <Text style={styles.appName}>{t.appName}</Text>
@@ -326,7 +332,9 @@ export default function HomeScreen() {
               onPress={handleGoReports}
               activeOpacity={0.7}
             >
-              <Text style={styles.headerSecondaryText}>{t.viewReports}</Text>
+              <Text style={styles.headerSecondaryText}>
+                {t.viewReports}
+              </Text>
             </TouchableOpacity>
           </View>
 

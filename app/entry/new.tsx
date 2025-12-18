@@ -1,4 +1,5 @@
 // app/entry/new.tsx
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
@@ -22,7 +23,7 @@ const COLORS = {
   lightBg: '#ffffff',
   accent: '#2e9ff5',
   muted: '#777777',
-  border: '#e0e0e0',
+  border: '#d0d0d0',
   danger: '#d32f2f',
 };
 
@@ -32,6 +33,7 @@ type Line = {
   id: string;
   ledgerName: string;
   amount: string;
+  showSuggestions?: boolean; // 🔹 new flag
 };
 
 type CreateLedgerContext =
@@ -71,8 +73,6 @@ export default function NewEntryScreen() {
 
   // ----- CASH BOOK STATE -----
   const [cashDirection, setCashDirection] = useState<'in' | 'out'>('out');
-  const [cashLedgerId, setCashLedgerId] = useState<string | undefined>();
-  const [cashLedgerQuery, setCashLedgerQuery] = useState('');
   const [otherLedgerId, setOtherLedgerId] = useState<string | undefined>();
   const [otherLedgerQuery, setOtherLedgerQuery] = useState('');
   const [cashAmount, setCashAmount] = useState('');
@@ -87,12 +87,13 @@ export default function NewEntryScreen() {
     return `${y}-${m}-${day}`;
   });
   const [journalNarration, setJournalNarration] = useState('');
+  const [showJournalDatePicker, setShowJournalDatePicker] = useState(false);
 
   const [debitLines, setDebitLines] = useState<Line[]>([
-    { id: 'dr-1', ledgerName: '', amount: '' },
+    { id: 'dr-1', ledgerName: '', amount: '', showSuggestions: true },
   ]);
   const [creditLines, setCreditLines] = useState<Line[]>([
-    { id: 'cr-1', ledgerName: '', amount: '' },
+    { id: 'cr-1', ledgerName: '', amount: '', showSuggestions: true },
   ]);
 
   const todayDateStr = useMemo(() => {
@@ -112,13 +113,12 @@ export default function NewEntryScreen() {
   const [newLedgerOpeningType, setNewLedgerOpeningType] =
     useState<'Dr' | 'Cr'>('Dr');
 
+  // 🔹 Fixed Cash A/C finder: any ledger jiska naam me "cash" ho
   const cashLedgers = useMemo(
     () =>
       uniqueByName(
         ledgers.filter((l: Ledger) =>
-          ['cash', 'bank'].some((word) =>
-            l.name.toLowerCase().includes(word),
-          ),
+          l.name.toLowerCase().includes('cash'),
         ),
       ),
     [ledgers],
@@ -270,21 +270,24 @@ export default function NewEntryScreen() {
 
   const applyCreatedLedger = (ledger: Ledger, ctx: CreateLedgerContext) => {
     if (ctx.source === 'cash') {
-      setCashLedgerId(ledger.id);
-      setCashLedgerQuery(ledger.name);
+      // future ke liye
     } else if (ctx.source === 'other') {
       setOtherLedgerId(ledger.id);
       setOtherLedgerQuery(ledger.name);
     } else if (ctx.source === 'journal-dr') {
       setDebitLines((prev: Line[]) =>
         prev.map((l) =>
-          l.id === ctx.lineId ? { ...l, ledgerName: ledger.name } : l,
+          l.id === ctx.lineId
+            ? { ...l, ledgerName: ledger.name, showSuggestions: false }
+            : l,
         ),
       );
     } else if (ctx.source === 'journal-cr') {
       setCreditLines((prev: Line[]) =>
         prev.map((l) =>
-          l.id === ctx.lineId ? { ...l, ledgerName: ledger.name } : l,
+          l.id === ctx.lineId
+            ? { ...l, ledgerName: ledger.name, showSuggestions: false }
+            : l,
         ),
       );
     }
@@ -298,18 +301,12 @@ export default function NewEntryScreen() {
       return;
     }
 
-    // Resolve cash ledger
-    let usedCashLedger: Ledger | undefined = undefined;
-    if (cashLedgerId) {
-      usedCashLedger = ledgers.find((l) => l.id === cashLedgerId);
-    }
-    if (!usedCashLedger && cashLedgerQuery.trim()) {
-      usedCashLedger = findExistingByExactName(cashLedgerQuery);
-    }
+    // 🔹 Fixed Cash A/C resolve
+    const usedCashLedger = cashLedgers[0];
     if (!usedCashLedger) {
       Alert.alert(
-        'Select Cash/Bank',
-        'Please select or create a Cash/Bank ledger.',
+        'Cash ledger missing',
+        'Please create a "Cash A/C" ledger first.',
       );
       return;
     }
@@ -325,7 +322,7 @@ export default function NewEntryScreen() {
     if (!usedOtherLedger) {
       Alert.alert(
         'Select Ledger',
-        'Please select or create the other ledger (Rent, Party, etc.).',
+        'Please select or create the related ledger (Rent, Party, etc.).',
       );
       return;
     }
@@ -342,7 +339,7 @@ export default function NewEntryScreen() {
 
     try {
       if (cashDirection === 'out') {
-        // Other A/c Dr  To Cash/Bank
+        // Other A/c Dr  To Cash
         await addTransaction({
           date,
           debitLedgerId: usedOtherLedger.id,
@@ -352,7 +349,7 @@ export default function NewEntryScreen() {
           voucherType,
         });
       } else {
-        // Cash/Bank Dr  To Other A/c
+        // Cash Dr  To Other A/c
         await addTransaction({
           date,
           debitLedgerId: usedCashLedger.id,
@@ -561,11 +558,6 @@ export default function NewEntryScreen() {
             <CashBookForm
               cashDirection={cashDirection}
               setCashDirection={setCashDirection}
-              cashLedgers={cashLedgers}
-              cashLedgerId={cashLedgerId}
-              setCashLedgerId={setCashLedgerId}
-              cashLedgerQuery={cashLedgerQuery}
-              setCashLedgerQuery={setCashLedgerQuery}
               otherLedgerId={otherLedgerId}
               setOtherLedgerId={setOtherLedgerId}
               otherLedgerQuery={otherLedgerQuery}
@@ -582,6 +574,8 @@ export default function NewEntryScreen() {
             <JournalForm
               date={journalDate}
               setDate={setJournalDate}
+              showDatePicker={showJournalDatePicker}
+              setShowDatePicker={setShowJournalDatePicker}
               narration={journalNarration}
               setNarration={setJournalNarration}
               debitLines={debitLines}
@@ -783,11 +777,6 @@ export default function NewEntryScreen() {
 type CashBookProps = {
   cashDirection: 'in' | 'out';
   setCashDirection: (v: 'in' | 'out') => void;
-  cashLedgers: Ledger[];
-  cashLedgerId?: string;
-  setCashLedgerId: (id?: string) => void;
-  cashLedgerQuery: string;
-  setCashLedgerQuery: (v: string) => void;
   otherLedgerId?: string;
   setOtherLedgerId: (id?: string) => void;
   otherLedgerQuery: string;
@@ -805,11 +794,6 @@ function CashBookForm(props: CashBookProps) {
   const {
     cashDirection,
     setCashDirection,
-    cashLedgers,
-    cashLedgerId,
-    setCashLedgerId,
-    cashLedgerQuery,
-    setCashLedgerQuery,
     otherLedgerId,
     setOtherLedgerId,
     otherLedgerQuery,
@@ -823,32 +807,10 @@ function CashBookForm(props: CashBookProps) {
     onRequestCreateLedger,
   } = props;
 
-  const cashSuggestions = useMemo(
-    () =>
-      cashLedgerQuery
-        ? cashLedgers
-            .filter((l: Ledger) =>
-              l.name.toLowerCase().includes(
-                cashLedgerQuery.toLowerCase(),
-              ),
-            )
-            .slice(0, 6)
-        : [],
-    [cashLedgerQuery, cashLedgers],
-  );
-
   const otherSuggestions = useMemo(
     () => findMatchingLedgers(otherLedgerQuery),
     [otherLedgerQuery, findMatchingLedgers],
   );
-
-  const hasExactCash = cashLedgerQuery.trim().length
-    ? cashLedgers.some(
-        (l: Ledger) =>
-          l.name.trim().toLowerCase() ===
-          cashLedgerQuery.trim().toLowerCase(),
-      )
-    : false;
 
   const hasExactOther = otherLedgerQuery.trim().length
     ? otherSuggestions.some(
@@ -859,147 +821,115 @@ function CashBookForm(props: CashBookProps) {
     : false;
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.sectionTitle}>Cash Book Entry</Text>
+    <View style={styles.cashCardOuter}>
+      <View style={styles.cashCardInner}>
+        <Text style={styles.sectionTitle}>Cash Book Entry</Text>
 
-      <View style={styles.chipRow}>
-        <TouchableOpacity
-          style={[
-            styles.smallChip,
-            cashDirection === 'in' && styles.smallChipSelected,
-          ]}
-          onPress={() => setCashDirection('in')}
-        >
-          <Text
+        {/* Cash In / Out buttons */}
+        <View style={styles.cashDirRow}>
+          <TouchableOpacity
             style={[
-              styles.smallChipText,
-              cashDirection === 'in' && styles.smallChipTextSelected,
+              styles.cashDirButton,
+              cashDirection === 'out' && styles.cashDirButtonOutSelected,
             ]}
+            onPress={() => setCashDirection('out')}
           >
-            Cash In
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.smallChip,
-            cashDirection === 'out' && styles.smallChipSelected,
-          ]}
-          onPress={() => setCashDirection('out')}
-        >
-          <Text
+            <Text
+              style={[
+                styles.cashDirText,
+                cashDirection === 'out' && styles.cashDirTextSelected,
+              ]}
+            >
+              Cash Out
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[
-              styles.smallChipText,
-              cashDirection === 'out' && styles.smallChipTextSelected,
+              styles.cashDirButton,
+              cashDirection === 'in' && styles.cashDirButtonInSelected,
             ]}
+            onPress={() => setCashDirection('in')}
           >
-            Cash Out
-          </Text>
+            <Text
+              style={[
+                styles.cashDirText,
+                cashDirection === 'in' && styles.cashDirTextSelected,
+              ]}
+            >
+              Cash In
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.label, { marginTop: 12 }]}>Particular</Text>
+        <TextInput
+          style={styles.input}
+          value={otherLedgerQuery}
+          placeholder="Select the related a/c"
+          placeholderTextColor="#999999"
+          onChangeText={(v) => {
+            setOtherLedgerQuery(v);
+            setOtherLedgerId(undefined);
+          }}
+        />
+        {otherLedgerQuery.trim().length > 0 &&
+          (!hasExactOther || otherSuggestions.length > 0) && (
+            <View style={styles.suggestionBox}>
+              {otherSuggestions.map((ledger: Ledger) => (
+                <TouchableOpacity
+                  key={ledger.id}
+                  style={styles.suggestionItem}
+                  onPress={() => {
+                    setOtherLedgerId(ledger.id);
+                    setOtherLedgerQuery(ledger.name);
+                  }}
+                >
+                  <Text style={styles.suggestionText}>{ledger.name}</Text>
+                </TouchableOpacity>
+              ))}
+              {!hasExactOther && otherLedgerQuery.trim().length > 0 && (
+                <TouchableOpacity
+                  style={styles.suggestionItemCreate}
+                  onPress={() =>
+                    onRequestCreateLedger({
+                      source: 'other',
+                      name: otherLedgerQuery.trim(),
+                    })
+                  }
+                >
+                  <Text style={styles.suggestionCreateText}>
+                    + Create "{otherLedgerQuery.trim()}" as new ledger
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+        <Text style={[styles.label, { marginTop: 10 }]}>Amount</Text>
+        <TextInput
+          style={styles.input}
+          keyboardType="numeric"
+          value={amount}
+          placeholder="Amount"
+          placeholderTextColor="#999999"
+          onChangeText={setAmount}
+        />
+
+        <Text style={[styles.label, { marginTop: 10 }]}>Narration</Text>
+        <TextInput
+          style={[styles.input, { minHeight: 60 }]}
+          multiline
+          value={narration}
+          onChangeText={setNarration}
+        />
+
+        <TouchableOpacity
+          style={styles.saveButton}
+          onPress={() => void onSave()}
+        >
+          <Text style={styles.saveButtonText}>Save Cash Entry</Text>
         </TouchableOpacity>
       </View>
-
-      <Text style={styles.label}>Cash / Bank A/C</Text>
-      <TextInput
-        style={styles.input}
-        value={cashLedgerQuery}
-        onChangeText={(v) => {
-          setCashLedgerQuery(v);
-          setCashLedgerId(undefined);
-        }}
-      />
-      {cashLedgerQuery.trim().length > 0 &&
-        (!hasExactCash || cashSuggestions.length > 0) && (
-          <View style={styles.suggestionBox}>
-            {cashSuggestions.map((ledger: Ledger) => (
-              <TouchableOpacity
-                key={ledger.id}
-                style={styles.suggestionItem}
-                onPress={() => {
-                  setCashLedgerId(ledger.id);
-                  setCashLedgerQuery(ledger.name);
-                }}
-              >
-                <Text style={styles.suggestionText}>{ledger.name}</Text>
-              </TouchableOpacity>
-            ))}
-            {!hasExactCash && cashLedgerQuery.trim().length > 0 && (
-              <TouchableOpacity
-                style={styles.suggestionItemCreate}
-                onPress={() =>
-                  onRequestCreateLedger({
-                    source: 'cash',
-                    name: cashLedgerQuery.trim(),
-                  })
-                }
-              >
-                <Text style={styles.suggestionCreateText}>
-                  + Create "{cashLedgerQuery.trim()}" as new ledger
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-      <Text style={[styles.label, { marginTop: 10 }]}>Particular A/C</Text>
-      <TextInput
-        style={styles.input}
-        value={otherLedgerQuery}
-        onChangeText={(v) => {
-          setOtherLedgerQuery(v);
-          setOtherLedgerId(undefined);
-        }}
-      />
-      {otherLedgerQuery.trim().length > 0 &&
-        (!hasExactOther || otherSuggestions.length > 0) && (
-          <View style={styles.suggestionBox}>
-            {otherSuggestions.map((ledger: Ledger) => (
-              <TouchableOpacity
-                key={ledger.id}
-                style={styles.suggestionItem}
-                onPress={() => {
-                  setOtherLedgerId(ledger.id);
-                  setOtherLedgerQuery(ledger.name);
-                }}
-              >
-                <Text style={styles.suggestionText}>{ledger.name}</Text>
-              </TouchableOpacity>
-            ))}
-            {!hasExactOther && otherLedgerQuery.trim().length > 0 && (
-              <TouchableOpacity
-                style={styles.suggestionItemCreate}
-                onPress={() =>
-                  onRequestCreateLedger({
-                    source: 'other',
-                    name: otherLedgerQuery.trim(),
-                  })
-                }
-              >
-                <Text style={styles.suggestionCreateText}>
-                  + Create "{otherLedgerQuery.trim()}" as new ledger
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-      <Text style={[styles.label, { marginTop: 10 }]}>Amount</Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="numeric"
-        value={amount}
-        onChangeText={setAmount}
-      />
-
-      <Text style={[styles.label, { marginTop: 10 }]}>Narration</Text>
-      <TextInput
-        style={[styles.input, { minHeight: 60 }]}
-        multiline
-        value={narration}
-        onChangeText={setNarration}
-      />
-
-      <TouchableOpacity style={styles.saveButton} onPress={() => void onSave()}>
-        <Text style={styles.saveButtonText}>Save Cash Entry</Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -1008,6 +938,8 @@ function CashBookForm(props: CashBookProps) {
 type JournalProps = {
   date: string;
   setDate: (v: string) => void;
+  showDatePicker: boolean;
+  setShowDatePicker: (v: boolean) => void;
   narration: string;
   setNarration: (v: string) => void;
   debitLines: Line[];
@@ -1023,6 +955,8 @@ function JournalForm(props: JournalProps) {
   const {
     date,
     setDate,
+    showDatePicker,
+    setShowDatePicker,
     narration,
     setNarration,
     debitLines,
@@ -1054,7 +988,7 @@ function JournalForm(props: JournalProps) {
 
   const addLine = (type: 'dr' | 'cr') => {
     const id = `${type}-${Date.now()}`;
-    const newLine: Line = { id, ledgerName: '', amount: '' };
+    const newLine: Line = { id, ledgerName: '', amount: '', showSuggestions: true };
     if (type === 'dr') {
       setDebitLines([...debitLines, newLine]);
     } else {
@@ -1073,7 +1007,10 @@ function JournalForm(props: JournalProps) {
   };
 
   const renderLine = (type: 'dr' | 'cr', line: Line, index: number) => {
-    const suggestions = findMatchingLedgers(line.ledgerName);
+    const suggestions =
+      line.showSuggestions === false
+        ? []
+        : findMatchingLedgers(line.ledgerName);
     const hasExact =
       line.ledgerName.trim().length > 0
         ? suggestions.some(
@@ -1082,6 +1019,11 @@ function JournalForm(props: JournalProps) {
               line.ledgerName.trim().toLowerCase(),
           )
         : false;
+
+    const shouldShowSuggestions =
+      line.showSuggestions !== false &&
+      line.ledgerName.trim().length > 0 &&
+      (suggestions.length > 0 || !hasExact);
 
     return (
       <View key={line.id} style={styles.journalLine}>
@@ -1092,40 +1034,47 @@ function JournalForm(props: JournalProps) {
           <TextInput
             style={styles.input}
             value={line.ledgerName}
-            onChangeText={(v) => updateLine(type, line.id, { ledgerName: v })}
+            onChangeText={(v) =>
+              updateLine(type, line.id, {
+                ledgerName: v,
+                showSuggestions: true,
+              })
+            }
           />
-          {line.ledgerName.trim().length > 0 &&
-            (!hasExact || suggestions.length > 0) && (
-              <View style={styles.suggestionBox}>
-                {suggestions.map((ledger: Ledger) => (
-                  <TouchableOpacity
-                    key={ledger.id}
-                    style={styles.suggestionItem}
-                    onPress={() =>
-                      updateLine(type, line.id, { ledgerName: ledger.name })
-                    }
-                  >
-                    <Text style={styles.suggestionText}>{ledger.name}</Text>
-                  </TouchableOpacity>
-                ))}
-                {!hasExact && line.ledgerName.trim().length > 0 && (
-                  <TouchableOpacity
-                    style={styles.suggestionItemCreate}
-                    onPress={() =>
-                      onRequestCreateLedger({
-                        source: type === 'dr' ? 'journal-dr' : 'journal-cr',
-                        lineId: line.id,
-                        name: line.ledgerName.trim(),
-                      })
-                    }
-                  >
-                    <Text style={styles.suggestionCreateText}>
-                      + Create "{line.ledgerName.trim()}" as new ledger
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
+          {shouldShowSuggestions && (
+            <View style={styles.suggestionBox}>
+              {suggestions.map((ledger: Ledger) => (
+                <TouchableOpacity
+                  key={ledger.id}
+                  style={styles.suggestionItem}
+                  onPress={() =>
+                    updateLine(type, line.id, {
+                      ledgerName: ledger.name,
+                      showSuggestions: false,
+                    })
+                  }
+                >
+                  <Text style={styles.suggestionText}>{ledger.name}</Text>
+                </TouchableOpacity>
+              ))}
+              {!hasExact && line.ledgerName.trim().length > 0 && (
+                <TouchableOpacity
+                  style={styles.suggestionItemCreate}
+                  onPress={() =>
+                    onRequestCreateLedger({
+                      source: type === 'dr' ? 'journal-dr' : 'journal-cr',
+                      lineId: line.id,
+                      name: line.ledgerName.trim(),
+                    })
+                  }
+                >
+                  <Text style={styles.suggestionCreateText}>
+                    + Create "{line.ledgerName.trim()}" as new ledger
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
 
         <View style={styles.amountColumn}>
@@ -1156,12 +1105,53 @@ function JournalForm(props: JournalProps) {
     0,
   );
 
+  const parseDateSafe = (value: string): Date => {
+    if (!value) return new Date();
+    const [y, m, d] = value.split('-').map((x) => parseInt(x, 10));
+    if (
+      !Number.isFinite(y) ||
+      !Number.isFinite(m) ||
+      !Number.isFinite(d)
+    ) {
+      return new Date();
+    }
+    return new Date(y, m - 1, d);
+  };
+
+  const handleDateChange = (_: any, selected?: Date) => {
+    setShowDatePicker(false);
+    if (selected) {
+      const y = selected.getFullYear();
+      const m = String(selected.getMonth() + 1).padStart(2, '0');
+      const d = String(selected.getDate()).padStart(2, '0');
+      setDate(`${y}-${m}-${d}`);
+    }
+  };
+
   return (
     <View style={styles.card}>
       <Text style={styles.sectionTitle}>Journal Entry</Text>
 
       <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-      <TextInput style={styles.input} value={date} onChangeText={setDate} />
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => setShowDatePicker(true)}
+      >
+        <TextInput
+          style={styles.input}
+          value={date}
+          editable={false}
+          pointerEvents="none"
+        />
+      </TouchableOpacity>
+      {showDatePicker && (
+        <DateTimePicker
+          mode="date"
+          display="calendar"
+          value={parseDateSafe(date)}
+          onChange={handleDateChange}
+        />
+      )}
 
       <Text style={[styles.subTitle, { marginTop: 10 }]}>Debit</Text>
       {debitLines.map((line, index) => renderLine('dr', line, index))}
@@ -1224,31 +1214,35 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 24,
   },
+
+  // top "tabs"
   modeRow: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 12,
   },
   modeChip: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 18,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: COLORS.border,
+    backgroundColor: '#f5f5f5',
   },
   modeChipSelected: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
   },
   modeChipText: {
     fontSize: 13,
-    color: COLORS.dark,
+    color: '#333333',
   },
   modeChipTextSelected: {
     color: COLORS.lightBg,
     fontWeight: '600',
   },
 
+  // generic card (journal)
   card: {
     borderRadius: 14,
     borderWidth: 1,
@@ -1256,11 +1250,27 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: '#fdf7fb',
   },
+  // cash card outer like mock
+  cashCardOuter: {
+    borderRadius: 24,
+    borderWidth: 1.2,
+    borderColor: '#c5c5c5',
+    padding: 6,
+    backgroundColor: '#f1f1f1',
+  },
+  cashCardInner: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#d0d0d0',
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+  },
+
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.dark,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   subTitle: {
     fontSize: 14,
@@ -1269,7 +1279,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    color: COLORS.muted,
+    color: COLORS.dark,
     marginBottom: 4,
   },
   input: {
@@ -1283,9 +1293,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 
+  // cash direction buttons
+  cashDirRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  cashDirButton: {
+    flex: 0,
+    minWidth: 110,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  cashDirButtonOutSelected: {
+    backgroundColor: '#d32f2f',
+    borderColor: '#d32f2f',
+  },
+  cashDirButtonInSelected: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  cashDirText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333333',
+  },
+  cashDirTextSelected: {
+    color: '#ffffff',
+  },
+
   chipRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap', // so 4 chips (Asset/Liability/Income/Expense) wrap nicely
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 10,
   },
@@ -1343,7 +1386,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingVertical: 10,
     alignItems: 'center',
-    backgroundColor: COLORS.dark,
+    backgroundColor: '#000000',
   },
   saveButtonText: {
     fontSize: 14,
