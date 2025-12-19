@@ -33,7 +33,7 @@ type Line = {
   id: string;
   ledgerName: string;
   amount: string;
-  showSuggestions?: boolean; // 🔹 new flag
+  showSuggestions?: boolean;
 };
 
 type CreateLedgerContext =
@@ -77,6 +77,15 @@ export default function NewEntryScreen() {
   const [otherLedgerQuery, setOtherLedgerQuery] = useState('');
   const [cashAmount, setCashAmount] = useState('');
   const [cashNarration, setCashNarration] = useState('');
+  const [cashDate, setCashDate] = useState<string>(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
+  const [showCashDatePicker, setShowCashDatePicker] = useState(false);
+  const [showCashSuggestions, setShowCashSuggestions] = useState(true);
 
   // ----- JOURNAL STATE -----
   const [journalDate, setJournalDate] = useState<string>(() => {
@@ -270,10 +279,11 @@ export default function NewEntryScreen() {
 
   const applyCreatedLedger = (ledger: Ledger, ctx: CreateLedgerContext) => {
     if (ctx.source === 'cash') {
-      // future ke liye
+      // future use
     } else if (ctx.source === 'other') {
       setOtherLedgerId(ledger.id);
       setOtherLedgerQuery(ledger.name);
+      setShowCashSuggestions(false);
     } else if (ctx.source === 'journal-dr') {
       setDebitLines((prev: Line[]) =>
         prev.map((l) =>
@@ -327,7 +337,7 @@ export default function NewEntryScreen() {
       return;
     }
 
-    const date = todayDateStr;
+    const date = cashDate.trim() || todayDateStr;
     const narration =
       cashNarration.trim() ||
       (cashDirection === 'out'
@@ -558,6 +568,10 @@ export default function NewEntryScreen() {
             <CashBookForm
               cashDirection={cashDirection}
               setCashDirection={setCashDirection}
+              cashDate={cashDate}
+              setCashDate={setCashDate}
+              showCashDatePicker={showCashDatePicker}
+              setShowCashDatePicker={setShowCashDatePicker}
               otherLedgerId={otherLedgerId}
               setOtherLedgerId={setOtherLedgerId}
               otherLedgerQuery={otherLedgerQuery}
@@ -569,6 +583,8 @@ export default function NewEntryScreen() {
               findMatchingLedgers={findMatchingLedgers}
               onSave={handleSaveCashBook}
               onRequestCreateLedger={openCreateLedger}
+              showSuggestions={showCashSuggestions}
+              setShowSuggestions={setShowCashSuggestions}
             />
           ) : (
             <JournalForm
@@ -777,6 +793,10 @@ export default function NewEntryScreen() {
 type CashBookProps = {
   cashDirection: 'in' | 'out';
   setCashDirection: (v: 'in' | 'out') => void;
+  cashDate: string;
+  setCashDate: (v: string) => void;
+  showCashDatePicker: boolean;
+  setShowCashDatePicker: (v: boolean) => void;
   otherLedgerId?: string;
   setOtherLedgerId: (id?: string) => void;
   otherLedgerQuery: string;
@@ -788,12 +808,18 @@ type CashBookProps = {
   findMatchingLedgers: (q: string) => Ledger[];
   onSave: () => void | Promise<void>;
   onRequestCreateLedger: (ctx: CreateLedgerContext) => void;
+  showSuggestions: boolean;
+  setShowSuggestions: (v: boolean) => void;
 };
 
 function CashBookForm(props: CashBookProps) {
   const {
     cashDirection,
     setCashDirection,
+    cashDate,
+    setCashDate,
+    showCashDatePicker,
+    setShowCashDatePicker,
     otherLedgerId,
     setOtherLedgerId,
     otherLedgerQuery,
@@ -805,11 +831,14 @@ function CashBookForm(props: CashBookProps) {
     findMatchingLedgers,
     onSave,
     onRequestCreateLedger,
+    showSuggestions,
+    setShowSuggestions,
   } = props;
 
   const otherSuggestions = useMemo(
-    () => findMatchingLedgers(otherLedgerQuery),
-    [otherLedgerQuery, findMatchingLedgers],
+    () =>
+      showSuggestions ? findMatchingLedgers(otherLedgerQuery) : [],
+    [otherLedgerQuery, findMatchingLedgers, showSuggestions],
   );
 
   const hasExactOther = otherLedgerQuery.trim().length
@@ -820,10 +849,60 @@ function CashBookForm(props: CashBookProps) {
       )
     : false;
 
+  const shouldShowSuggestions =
+    showSuggestions &&
+    otherLedgerQuery.trim().length > 0 &&
+    (otherSuggestions.length > 0 || !hasExactOther);
+
+  const parseDateSafe = (value: string): Date => {
+    if (!value) return new Date();
+    const [y, m, d] = value.split('-').map((x) => parseInt(x, 10));
+    if (
+      !Number.isFinite(y) ||
+      !Number.isFinite(m) ||
+      !Number.isFinite(d)
+    ) {
+      return new Date();
+    }
+    return new Date(y, m - 1, d);
+  };
+
+  const handleDateChange = (_: any, selected?: Date) => {
+    setShowCashDatePicker(false);
+    if (selected) {
+      const y = selected.getFullYear();
+      const m = String(selected.getMonth() + 1).padStart(2, '0');
+      const d = String(selected.getDate()).padStart(2, '0');
+      setCashDate(`${y}-${m}-${d}`);
+    }
+  };
+
   return (
     <View style={styles.cashCardOuter}>
       <View style={styles.cashCardInner}>
         <Text style={styles.sectionTitle}>Cash Book Entry</Text>
+
+        {/* Date (like Journal) */}
+        <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setShowCashDatePicker(true)}
+        >
+          <TextInput
+            style={styles.input}
+            value={cashDate}
+            editable={false}
+            pointerEvents="none"
+          />
+        </TouchableOpacity>
+        {showCashDatePicker && (
+          <DateTimePicker
+            mode="date"
+            display="calendar"
+            value={parseDateSafe(cashDate)}
+            onChange={handleDateChange}
+          />
+        )}
 
         {/* Cash In / Out buttons */}
         <View style={styles.cashDirRow}>
@@ -870,40 +949,42 @@ function CashBookForm(props: CashBookProps) {
           onChangeText={(v) => {
             setOtherLedgerQuery(v);
             setOtherLedgerId(undefined);
+            setShowSuggestions(true);
           }}
         />
-        {otherLedgerQuery.trim().length > 0 &&
-          (!hasExactOther || otherSuggestions.length > 0) && (
-            <View style={styles.suggestionBox}>
-              {otherSuggestions.map((ledger: Ledger) => (
-                <TouchableOpacity
-                  key={ledger.id}
-                  style={styles.suggestionItem}
-                  onPress={() => {
-                    setOtherLedgerId(ledger.id);
-                    setOtherLedgerQuery(ledger.name);
-                  }}
-                >
-                  <Text style={styles.suggestionText}>{ledger.name}</Text>
-                </TouchableOpacity>
-              ))}
-              {!hasExactOther && otherLedgerQuery.trim().length > 0 && (
-                <TouchableOpacity
-                  style={styles.suggestionItemCreate}
-                  onPress={() =>
-                    onRequestCreateLedger({
-                      source: 'other',
-                      name: otherLedgerQuery.trim(),
-                    })
-                  }
-                >
-                  <Text style={styles.suggestionCreateText}>
-                    + Create "{otherLedgerQuery.trim()}" as new ledger
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+        {shouldShowSuggestions && (
+          <View style={styles.suggestionBox}>
+            {otherSuggestions.map((ledger: Ledger) => (
+              <TouchableOpacity
+                key={ledger.id}
+                style={styles.suggestionItem}
+                onPress={() => {
+                  setOtherLedgerId(ledger.id);
+                  setOtherLedgerQuery(ledger.name);
+                  setShowSuggestions(false); // ✅ hide after select
+                }}
+              >
+                <Text style={styles.suggestionText}>{ledger.name}</Text>
+              </TouchableOpacity>
+            ))}
+            {!hasExactOther && otherLedgerQuery.trim().length > 0 && (
+              <TouchableOpacity
+                style={styles.suggestionItemCreate}
+                onPress={() => {
+                  onRequestCreateLedger({
+                    source: 'other',
+                    name: otherLedgerQuery.trim(),
+                  });
+                  setShowSuggestions(false);
+                }}
+              >
+                <Text style={styles.suggestionCreateText}>
+                  + Create "{otherLedgerQuery.trim()}" as new ledger
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         <Text style={[styles.label, { marginTop: 10 }]}>Amount</Text>
         <TextInput
@@ -988,7 +1069,12 @@ function JournalForm(props: JournalProps) {
 
   const addLine = (type: 'dr' | 'cr') => {
     const id = `${type}-${Date.now()}`;
-    const newLine: Line = { id, ledgerName: '', amount: '', showSuggestions: true };
+    const newLine: Line = {
+      id,
+      ledgerName: '',
+      amount: '',
+      showSuggestions: true,
+    };
     if (type === 'dr') {
       setDebitLines([...debitLines, newLine]);
     } else {
@@ -1297,6 +1383,7 @@ const styles = StyleSheet.create({
   cashDirRow: {
     flexDirection: 'row',
     gap: 8,
+    marginTop: 8,
     marginBottom: 8,
   },
   cashDirButton: {
