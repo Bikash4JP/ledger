@@ -40,12 +40,22 @@ type LedgerLine = {
   remarks: string;
   debit: number;
   credit: number;
+  balance: number; // running balance (Dr +, Cr -)
 };
 
 function formatAmount(value: number): string {
   return `¥${value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
   })}`;
+}
+
+// Balance display helper: 1,000 Dr / 500 Cr / 0.00
+function formatBalance(value: number): string {
+  if (value === 0) return '0.00';
+  const side = value > 0 ? 'Dr' : 'Cr';
+  return `${Math.abs(
+    value,
+  ).toLocaleString(undefined, { minimumFractionDigits: 2 })} ${side}`;
 }
 
 // Small helper: YYYY-MM-DD string → Date (fallback = today)
@@ -113,7 +123,7 @@ export default function LedgerDetailScreen() {
         t.debitLedgerId === ledger.id || t.creditLedgerId === ledger.id,
     );
 
-    const mapLine = (t: Transaction): LedgerLine => {
+    const mappedBase = ledgerTx.map((t: Transaction) => {
       const isDebit = t.debitLedgerId === ledger.id;
       const otherLedgerId = isDebit ? t.creditLedgerId : t.debitLedgerId;
       const otherLedger =
@@ -127,11 +137,9 @@ export default function LedgerDetailScreen() {
         debit: isDebit ? t.amount : 0,
         credit: !isDebit ? t.amount : 0,
       };
-    };
+    });
 
-    const mapped: LedgerLine[] = ledgerTx.map(mapLine);
-
-    const filtered = mapped.filter((line) => {
+    const filtered = mappedBase.filter((line) => {
       if (fromDate && line.date < fromDate) return false;
       if (toDate && line.date > toDate) return false;
       return true;
@@ -142,7 +150,17 @@ export default function LedgerDetailScreen() {
       return a.date < b.date ? -1 : 1;
     });
 
-    return filtered;
+    // 🔹 Running balance: Dr positive, Cr negative
+    let running = 0;
+    const withBalance: LedgerLine[] = filtered.map((line) => {
+      running += line.debit - line.credit;
+      return {
+        ...line,
+        balance: running,
+      };
+    });
+
+    return withBalance;
   }, [ledger, ledgers, transactions, fromDate, toDate]);
 
   const totals = useMemo(() => {
@@ -288,7 +306,6 @@ export default function LedgerDetailScreen() {
   };
 
   const handleDateChange = (event: any, date?: Date) => {
-    // Android par picker close kar dete hain
     if (Platform.OS === 'android') {
       setShowDatePicker(false);
     }
@@ -318,7 +335,6 @@ export default function LedgerDetailScreen() {
       const toLabel = toDate || 'today';
       const fileName = `${safeName}_${fromLabel}_${toLabel}.pdf`;
 
-      // Simple HTML for PDF (matching table-ish style)
       const rowsHtml = lines
         .map(
           (line) => `
@@ -326,21 +342,32 @@ export default function LedgerDetailScreen() {
           <td>${line.date}</td>
           <td>
             <strong>${line.particular}</strong><br/>
-            ${line.remarks ? `<span style="font-size:10px;color:#666;">${line.remarks}</span>` : ''}
+            ${
+              line.remarks
+                ? `<span style="font-size:10px;color:#666;">${line.remarks}</span>`
+                : ''
+            }
           </td>
           <td style="text-align:right;">
-            ${line.debit
-              ? line.debit.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                })
-              : ''}
+            ${
+              line.debit
+                ? line.debit.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })
+                : ''
+            }
           </td>
           <td style="text-align:right;">
-            ${line.credit
-              ? line.credit.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                })
-              : ''}
+            ${
+              line.credit
+                ? line.credit.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })
+                : ''
+            }
+          </td>
+          <td style="text-align:right;">
+            ${formatBalance(line.balance)}
           </td>
         </tr>
       `,
@@ -407,10 +434,11 @@ export default function LedgerDetailScreen() {
             <table>
               <thead>
                 <tr>
-                  <th style="width:18%;">Date</th>
-                  <th style="width:46%;">Particulars</th>
-                  <th style="width:18%; text-align:right;">Dr</th>
-                  <th style="width:18%; text-align:right;">Cr</th>
+                  <th style="width:16%;">Date</th>
+                  <th style="width:40%;">Particulars</th>
+                  <th style="width:14%; text-align:right;">Dr</th>
+                  <th style="width:14%; text-align:right;">Cr</th>
+                  <th style="width:16%; text-align:right;">Balance</th>
                 </tr>
               </thead>
               <tbody>
@@ -430,6 +458,9 @@ export default function LedgerDetailScreen() {
                       minimumFractionDigits: 2,
                     })}
                   </td>
+                  <td class="amount">
+                    ${formatBalance(closingDiff)}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -440,7 +471,7 @@ export default function LedgerDetailScreen() {
       const { uri } = await Print.printToFileAsync({ html });
 
       let targetUri = uri;
-      const dir = FileSystem.cacheDirectory; // legacy API
+      const dir = FileSystem.cacheDirectory;
       if (dir) {
         const newPath = dir + fileName;
         await FileSystem.moveAsync({ from: uri, to: newPath });
@@ -593,6 +624,15 @@ export default function LedgerDetailScreen() {
             >
               Cr
             </Text>
+            <Text
+              style={[
+                styles.colBalance,
+                styles.tableHeaderText,
+                styles.right,
+              ]}
+            >
+              Balance
+            </Text>
           </View>
 
           {lines.length === 0 ? (
@@ -634,6 +674,11 @@ export default function LedgerDetailScreen() {
                         : ''}
                     </Text>
                   </View>
+                  <View style={styles.balanceCell}>
+                    <Text style={[styles.amountText, styles.right]}>
+                      {formatBalance(line.balance)}
+                    </Text>
+                  </View>
                 </View>
               ))}
 
@@ -670,13 +715,23 @@ export default function LedgerDetailScreen() {
                     })}
                   </Text>
                 </View>
+                <View style={styles.balanceCell}>
+                  <Text
+                    style={[
+                      styles.amountText,
+                      styles.totalAmount,
+                      styles.right,
+                    ]}
+                  >
+                    {formatBalance(closingDiff)}
+                  </Text>
+                </View>
               </View>
             </>
           )}
         </View>
       </ScrollView>
 
-      {/* DateTimePicker (OS-wise inline / modal) */}
       {showDatePicker && (
         <DateTimePicker
           value={pickerDate}
@@ -972,6 +1027,9 @@ const styles = StyleSheet.create({
   colAmount: {
     flex: 1,
   },
+  colBalance: {
+    flex: 1.1,
+  },
   tableHeaderText: {
     fontSize: 11,
     fontWeight: '700',
@@ -1001,6 +1059,10 @@ const styles = StyleSheet.create({
   },
   amountCell: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  balanceCell: {
+    flex: 1.1,
     justifyContent: 'center',
   },
   amountText: {
