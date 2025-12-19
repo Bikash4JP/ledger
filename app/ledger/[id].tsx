@@ -43,19 +43,38 @@ type LedgerLine = {
   balance: number; // running balance (Dr +, Cr -)
 };
 
-function formatAmount(value: number): string {
-  return `¥${value.toLocaleString(undefined, {
+/**
+ * 1000       -> "1,000"
+ * 1000.5     -> "1,000.50"
+ * 5646.36    -> "5,646.36"
+ * 0 / NaN    -> "0"
+ */
+function formatNumberWithOptionalDecimals(value: number): string {
+  const n = Number(value) || 0;
+  const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+
+  if (isInt) {
+    return Math.round(n).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+  }
+
+  return n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
-  })}`;
+    maximumFractionDigits: 2,
+  });
 }
 
-// Balance display helper: 1,000 Dr / 500 Cr / 0.00
+function formatAmount(value: number): string {
+  if (!value) return '¥0';
+  return `¥${formatNumberWithOptionalDecimals(Math.abs(value))}`;
+}
+
+// Balance display helper: 1,000 Dr / 500 Cr / 0
 function formatBalance(value: number): string {
-  if (value === 0) return '0.00';
+  if (value === 0) return '0';
   const side = value > 0 ? 'Dr' : 'Cr';
-  return `${Math.abs(
-    value,
-  ).toLocaleString(undefined, { minimumFractionDigits: 2 })} ${side}`;
+  return `${formatNumberWithOptionalDecimals(Math.abs(value))} ${side}`;
 }
 
 // Small helper: YYYY-MM-DD string → Date (fallback = today)
@@ -289,7 +308,7 @@ export default function LedgerDetailScreen() {
   const closingDiff = totals.debit - totals.credit;
   const closingBalanceText =
     closingDiff === 0
-      ? '0.00'
+      ? '0'
       : `${formatAmount(Math.abs(closingDiff))} ${
           closingDiff > 0 ? 'Dr' : 'Cr'
         }`;
@@ -351,18 +370,14 @@ export default function LedgerDetailScreen() {
           <td style="text-align:right;">
             ${
               line.debit
-                ? line.debit.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })
+                ? formatNumberWithOptionalDecimals(line.debit)
                 : ''
             }
           </td>
           <td style="text-align:right;">
             ${
               line.credit
-                ? line.credit.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })
+                ? formatNumberWithOptionalDecimals(line.credit)
                 : ''
             }
           </td>
@@ -449,14 +464,10 @@ export default function LedgerDetailScreen() {
                   <td></td>
                   <td>TOTAL</td>
                   <td class="amount">
-                    ${totals.debit.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                    ${formatNumberWithOptionalDecimals(totals.debit)}
                   </td>
                   <td class="amount">
-                    ${totals.credit.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                    ${formatNumberWithOptionalDecimals(totals.credit)}
                   </td>
                   <td class="amount">
                     ${formatBalance(closingDiff)}
@@ -659,18 +670,14 @@ export default function LedgerDetailScreen() {
                   <View style={styles.amountCell}>
                     <Text style={[styles.amountText, styles.right]}>
                       {line.debit
-                        ? line.debit.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                          })
+                        ? formatNumberWithOptionalDecimals(line.debit)
                         : ''}
                     </Text>
                   </View>
                   <View style={styles.amountCell}>
                     <Text style={[styles.amountText, styles.right]}>
                       {line.credit
-                        ? line.credit.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                          })
+                        ? formatNumberWithOptionalDecimals(line.credit)
                         : ''}
                     </Text>
                   </View>
@@ -697,9 +704,7 @@ export default function LedgerDetailScreen() {
                       styles.right,
                     ]}
                   >
-                    {totals.debit.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatNumberWithOptionalDecimals(totals.debit)}
                   </Text>
                 </View>
                 <View style={styles.amountCell}>
@@ -710,9 +715,7 @@ export default function LedgerDetailScreen() {
                       styles.right,
                     ]}
                   >
-                    {totals.credit.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatNumberWithOptionalDecimals(totals.credit)}
                   </Text>
                 </View>
                 <View style={styles.balanceCell}>
