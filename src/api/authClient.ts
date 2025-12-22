@@ -10,7 +10,7 @@ export type AuthUser = {
   phone: string | null;
   createdAt: string;
 };
-
+//just a comment to push
 async function authRequest<T>(
   path: string,
   body: any,
