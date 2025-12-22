@@ -156,20 +156,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleGoogleLogin = () => {
-    Alert.alert(
-      'Google sign-in',
-      'Google login will be connected to a real provider in a future version. For now, please use email/username + password.',
-    );
-  };
-
-  const handlePhoneLogin = () => {
-    Alert.alert(
-      'Phone login',
-      'Phone number login will be connected to an SMS provider in a future version. For now, please use email/username + password.',
-    );
-  };
-
   const handleLogout = async () => {
     Alert.alert('Logout', 'Do you really want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -363,38 +349,6 @@ export default function SettingsScreen() {
                 onPress={handleLogin}
               >
                 <Text style={styles.smallButtonText}>Login</Text>
-              </TouchableOpacity>
-
-              <View style={styles.dividerRow}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.oauthButton,
-                  { backgroundColor: '#ffffff' },
-                ]}
-                onPress={handleGoogleLogin}
-              >
-                <Text style={styles.oauthIcon}>G</Text>
-                <Text style={styles.oauthText}>
-                  Sign in with Google (coming soon)
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.oauthButton,
-                  { backgroundColor: '#ffffff' },
-                ]}
-                onPress={handlePhoneLogin}
-              >
-                <Text style={styles.oauthIcon}>📱</Text>
-                <Text style={styles.oauthText}>
-                  Login with phone number (coming soon)
-                </Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -731,49 +685,5 @@ const styles = StyleSheet.create({
   authTabTextActive: {
     color: '#fff',
     fontWeight: '600',
-  },
-
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  dividerText: {
-    fontSize: 11,
-    color: COLORS.muted,
-    marginHorizontal: 8,
-  },
-
-  oauthButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginBottom: 6,
-  },
-  oauthIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    marginRight: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  oauthText: {
-    fontSize: 13,
-    color: COLORS.dark,
   },
 });
