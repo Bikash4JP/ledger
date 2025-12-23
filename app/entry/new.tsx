@@ -5,6 +5,8 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 import type { Ledger } from '../../src/models/ledger';
@@ -61,6 +64,11 @@ export default function NewEntryScreen() {
   const { ledgers, addTransaction, addLedger } = useData();
   const settings = useSettings() as any;
   const language: 'en' | 'ja' = settings.language ?? 'en';
+
+  // ✅ safe on iOS/Android/Web (no header context needed)
+  const insets = useSafeAreaInsets();
+  const keyboardVerticalOffset =
+    Platform.OS === 'ios' ? insets.top + 64 : 0;
 
   const getLedgerDisplayName = React.useCallback(
     (ledger: Ledger | null | undefined) => {
@@ -131,9 +139,7 @@ export default function NewEntryScreen() {
   const cashLedgers = useMemo(
     () =>
       uniqueByName(
-        ledgers.filter((l: Ledger) =>
-          l.name.toLowerCase().includes('cash'),
-        ),
+        ledgers.filter((l: Ledger) => l.name.toLowerCase().includes('cash')),
       ),
     [ledgers],
   );
@@ -149,9 +155,7 @@ export default function NewEntryScreen() {
   const findExistingByExactName = (name: string): Ledger | undefined => {
     const q = name.trim().toLowerCase();
     if (!q) return undefined;
-    return ledgers.find(
-      (l: Ledger) => l.name.trim().toLowerCase() === q,
-    );
+    return ledgers.find((l: Ledger) => l.name.trim().toLowerCase() === q);
   };
 
   const parseAmount = (v: string): number => {
@@ -162,8 +166,7 @@ export default function NewEntryScreen() {
   // Opening Balance Adjustment ledger finder/creator (async)
   const getOrCreateOpeningLedger = async (): Promise<Ledger> => {
     let opening = ledgers.find(
-      (l: Ledger) =>
-        l.name.toLowerCase() === 'opening balance adjustment',
+      (l: Ledger) => l.name.toLowerCase() === 'opening balance adjustment',
     );
     if (opening) return opening;
 
@@ -334,10 +337,7 @@ export default function NewEntryScreen() {
       // 🔹 Fixed Cash A/C resolve
       const usedCashLedger = cashLedgers[0];
       if (!usedCashLedger) {
-        Alert.alert(
-          'Cash ledger missing',
-          'Please create a "Cash A/C" ledger first.',
-        );
+        Alert.alert('Cash ledger missing', 'Please create a "Cash A/C" ledger first.');
         return;
       }
 
@@ -390,10 +390,7 @@ export default function NewEntryScreen() {
       }
 
       Alert.alert('Success', 'Entries saved successfully.', [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/(tabs)/entries'),
-        },
+        { text: 'OK', onPress: () => router.replace('/(tabs)/entries') },
       ]);
     } catch (err) {
       console.error('[Entry] Failed to save cash entry', err);
@@ -426,10 +423,7 @@ export default function NewEntryScreen() {
         .filter((l) => l.ledgerName.trim() && l.amountNum > 0);
 
       if (drLines.length === 0 || crLines.length === 0) {
-        Alert.alert(
-          'Validation',
-          'Please enter at least one debit and one credit line.',
-        );
+        Alert.alert('Validation', 'Please enter at least one debit and one credit line.');
         return;
       }
 
@@ -454,11 +448,7 @@ export default function NewEntryScreen() {
 
       const missing: { type: 'dr' | 'cr'; lineId: string; name: string }[] = [];
 
-      const resolveExisting = (
-        type: 'dr' | 'cr',
-        lineId: string,
-        name: string,
-      ) => {
+      const resolveExisting = (type: 'dr' | 'cr', lineId: string, name: string) => {
         const ledger = findExistingByExactName(name);
         if (!ledger) {
           missing.push({ type, lineId, name });
@@ -483,10 +473,7 @@ export default function NewEntryScreen() {
           name: first.name,
         };
         openCreateLedger(ctx);
-        Alert.alert(
-          'Create Ledger',
-          `Ledger "${first.name}" does not exist yet. Please create it first.`,
-        );
+        Alert.alert('Create Ledger', `Ledger "${first.name}" does not exist yet. Please create it first.`);
         return;
       }
 
@@ -540,10 +527,7 @@ export default function NewEntryScreen() {
       await Promise.all(ops);
 
       Alert.alert('Success', 'Entries saved successfully.', [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/(tabs)/entries'),
-        },
+        { text: 'OK', onPress: () => router.replace('/(tabs)/entries') },
       ]);
     } catch (err) {
       console.error('[Entry] Failed to save journal entry', err);
@@ -570,9 +554,7 @@ export default function NewEntryScreen() {
         activeOpacity={0.7}
         disabled={isSavingEntry}
       >
-        <Text
-          style={[styles.modeChipText, selected && styles.modeChipTextSelected]}
-        >
+        <Text style={[styles.modeChipText, selected && styles.modeChipTextSelected]}>
           {label}
         </Text>
       </TouchableOpacity>
@@ -583,236 +565,239 @@ export default function NewEntryScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Add Entry' }} />
-      <View style={{ flex: 1 }}>
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.modeRow}>
-            {renderChip('cashBook', 'Cash Book')}
-            {renderChip('journal', 'Journal')}
-          </View>
 
-          {entryType === 'cashBook' ? (
-            <CashBookForm
-              cashDirection={cashDirection}
-              setCashDirection={setCashDirection}
-              cashDate={cashDate}
-              setCashDate={setCashDate}
-              showCashDatePicker={showCashDatePicker}
-              setShowCashDatePicker={setShowCashDatePicker}
-              otherLedgerId={otherLedgerId}
-              setOtherLedgerId={setOtherLedgerId}
-              otherLedgerQuery={otherLedgerQuery}
-              setOtherLedgerQuery={setOtherLedgerQuery}
-              amount={cashAmount}
-              setAmount={setCashAmount}
-              narration={cashNarration}
-              setNarration={setCashNarration}
-              findMatchingLedgers={findMatchingLedgers}
-              onSave={handleSaveCashBook}
-              onRequestCreateLedger={openCreateLedger}
-              showSuggestions={showCashSuggestions}
-              setShowSuggestions={setShowCashSuggestions}
-              isSaving={isSavingEntry}
-            />
-          ) : (
-            <JournalForm
-              date={journalDate}
-              setDate={setJournalDate}
-              showDatePicker={showJournalDatePicker}
-              setShowDatePicker={setShowJournalDatePicker}
-              narration={journalNarration}
-              setNarration={setJournalNarration}
-              debitLines={debitLines}
-              setDebitLines={setDebitLines}
-              creditLines={creditLines}
-              setCreditLines={setCreditLines}
-              findMatchingLedgers={findMatchingLedgers}
-              onSave={handleSaveJournal}
-              onRequestCreateLedger={openCreateLedger}
-              isSaving={isSavingEntry}
-            />
-          )}
-        </ScrollView>
+      {/* ✅ Keyboard avoid + still scrollable on iOS/Android/Web */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={keyboardVerticalOffset}
+      >
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={[
+              styles.content,
+              // ✅ extra bottom space so Narration/Save button never stays behind keyboard
+              { paddingBottom: 24 + 220 },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
+            <View style={styles.modeRow}>
+              {renderChip('cashBook', 'Cash Book')}
+              {renderChip('journal', 'Journal')}
+            </View>
 
-        {/* Create Ledger Overlay */}
-        {createCtx && (
-          <View style={styles.overlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Create New Ledger</Text>
-              <Text style={styles.modalHint}>
-                This will be added as a ledger with optional opening balance.
-              </Text>
-
-              <Text style={[styles.label, { marginTop: 8 }]}>Ledger Name</Text>
-              <TextInput
-                style={styles.input}
-                value={newLedgerName}
-                onChangeText={setNewLedgerName}
+            {entryType === 'cashBook' ? (
+              <CashBookForm
+                cashDirection={cashDirection}
+                setCashDirection={setCashDirection}
+                cashDate={cashDate}
+                setCashDate={setCashDate}
+                showCashDatePicker={showCashDatePicker}
+                setShowCashDatePicker={setShowCashDatePicker}
+                otherLedgerId={otherLedgerId}
+                setOtherLedgerId={setOtherLedgerId}
+                otherLedgerQuery={otherLedgerQuery}
+                setOtherLedgerQuery={setOtherLedgerQuery}
+                amount={cashAmount}
+                setAmount={setCashAmount}
+                narration={cashNarration}
+                setNarration={setCashNarration}
+                findMatchingLedgers={findMatchingLedgers}
+                onSave={handleSaveCashBook}
+                onRequestCreateLedger={openCreateLedger}
+                showSuggestions={showCashSuggestions}
+                setShowSuggestions={setShowCashSuggestions}
+                isSaving={isSavingEntry}
               />
+            ) : (
+              <JournalForm
+                date={journalDate}
+                setDate={setJournalDate}
+                showDatePicker={showJournalDatePicker}
+                setShowDatePicker={setShowJournalDatePicker}
+                narration={journalNarration}
+                setNarration={setJournalNarration}
+                debitLines={debitLines}
+                setDebitLines={setDebitLines}
+                creditLines={creditLines}
+                setCreditLines={setCreditLines}
+                findMatchingLedgers={findMatchingLedgers}
+                onSave={handleSaveJournal}
+                onRequestCreateLedger={openCreateLedger}
+                isSaving={isSavingEntry}
+              />
+            )}
+          </ScrollView>
 
-              <Text style={[styles.label, { marginTop: 8 }]}>Ledger Type</Text>
-              <View style={styles.chipRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.smallChip,
-                    newLedgerNature === 'Asset' && styles.smallChipSelected,
-                  ]}
-                  onPress={() => {
-                    setNewLedgerNature('Asset');
-                    setNewLedgerOpeningType('Dr');
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.smallChipText,
-                      newLedgerNature === 'Asset' &&
-                        styles.smallChipTextSelected,
-                    ]}
-                  >
-                    Asset
-                  </Text>
-                </TouchableOpacity>
+          {/* Create Ledger Overlay */}
+          {createCtx && (
+            <View style={styles.overlay}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>Create New Ledger</Text>
+                <Text style={styles.modalHint}>
+                  This will be added as a ledger with optional opening balance.
+                </Text>
 
-                <TouchableOpacity
-                  style={[
-                    styles.smallChip,
-                    newLedgerNature === 'Liability' &&
-                      styles.smallChipSelected,
-                  ]}
-                  onPress={() => {
-                    setNewLedgerNature('Liability');
-                    setNewLedgerOpeningType('Cr');
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.smallChipText,
-                      newLedgerNature === 'Liability' &&
-                        styles.smallChipTextSelected,
-                    ]}
-                  >
-                    Liability
-                  </Text>
-                </TouchableOpacity>
+                <Text style={[styles.label, { marginTop: 8 }]}>Ledger Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newLedgerName}
+                  onChangeText={setNewLedgerName}
+                />
 
-                <TouchableOpacity
-                  style={[
-                    styles.smallChip,
-                    newLedgerNature === 'Income' && styles.smallChipSelected,
-                  ]}
-                  onPress={() => {
-                    setNewLedgerNature('Income');
-                    setNewLedgerOpeningType('Cr');
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.smallChipText,
-                      newLedgerNature === 'Income' &&
-                        styles.smallChipTextSelected,
-                    ]}
-                  >
-                    Income
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.smallChip,
-                    newLedgerNature === 'Expense' && styles.smallChipSelected,
-                  ]}
-                  onPress={() => {
-                    setNewLedgerNature('Expense');
-                    setNewLedgerOpeningType('Dr');
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.smallChipText,
-                      newLedgerNature === 'Expense' &&
-                        styles.smallChipTextSelected,
-                    ]}
-                  >
-                    Expense
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.label, { marginTop: 8 }]}>
-                Opening Balance (optional)
-              </Text>
-              <View style={styles.openingRow}>
-                <View style={{ flex: 1 }}>
-                  <TextInput
-                    style={styles.input}
-                    keyboardType="numeric"
-                    value={newLedgerOpeningAmount}
-                    onChangeText={setNewLedgerOpeningAmount}
-                  />
-                </View>
-                <View style={styles.openingTypeCol}>
+                <Text style={[styles.label, { marginTop: 8 }]}>Ledger Type</Text>
+                <View style={styles.chipRow}>
                   <TouchableOpacity
                     style={[
                       styles.smallChip,
-                      newLedgerOpeningType === 'Dr' &&
-                        styles.smallChipSelected,
+                      newLedgerNature === 'Asset' && styles.smallChipSelected,
                     ]}
-                    onPress={() => setNewLedgerOpeningType('Dr')}
+                    onPress={() => {
+                      setNewLedgerNature('Asset');
+                      setNewLedgerOpeningType('Dr');
+                    }}
                   >
                     <Text
                       style={[
                         styles.smallChipText,
-                        newLedgerOpeningType === 'Dr' &&
-                          styles.smallChipTextSelected,
+                        newLedgerNature === 'Asset' && styles.smallChipTextSelected,
                       ]}
                     >
-                      Dr
+                      Asset
                     </Text>
                   </TouchableOpacity>
+
                   <TouchableOpacity
                     style={[
                       styles.smallChip,
-                      newLedgerOpeningType === 'Cr' &&
-                        styles.smallChipSelected,
+                      newLedgerNature === 'Liability' && styles.smallChipSelected,
                     ]}
-                    onPress={() => setNewLedgerOpeningType('Cr')}
+                    onPress={() => {
+                      setNewLedgerNature('Liability');
+                      setNewLedgerOpeningType('Cr');
+                    }}
                   >
                     <Text
                       style={[
                         styles.smallChipText,
-                        newLedgerOpeningType === 'Cr' &&
-                          styles.smallChipTextSelected,
+                        newLedgerNature === 'Liability' && styles.smallChipTextSelected,
                       ]}
                     >
-                      Cr
+                      Liability
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.smallChip,
+                      newLedgerNature === 'Income' && styles.smallChipSelected,
+                    ]}
+                    onPress={() => {
+                      setNewLedgerNature('Income');
+                      setNewLedgerOpeningType('Cr');
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.smallChipText,
+                        newLedgerNature === 'Income' && styles.smallChipTextSelected,
+                      ]}
+                    >
+                      Income
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.smallChip,
+                      newLedgerNature === 'Expense' && styles.smallChipSelected,
+                    ]}
+                    onPress={() => {
+                      setNewLedgerNature('Expense');
+                      setNewLedgerOpeningType('Dr');
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.smallChipText,
+                        newLedgerNature === 'Expense' && styles.smallChipTextSelected,
+                      ]}
+                    >
+                      Expense
                     </Text>
                   </TouchableOpacity>
                 </View>
-              </View>
 
-              <View style={styles.modalButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalButtonSecondary]}
-                  onPress={handleCreateLedgerCancel}
-                >
-                  <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalButtonPrimary]}
-                  onPress={() => {
-                    void handleCreateLedgerSave();
-                  }}
-                >
-                  <Text style={styles.modalButtonPrimaryText}>Save & Use</Text>
-                </TouchableOpacity>
+                <Text style={[styles.label, { marginTop: 8 }]}>Opening Balance (optional)</Text>
+                <View style={styles.openingRow}>
+                  <View style={{ flex: 1 }}>
+                    <TextInput
+                      style={styles.input}
+                      keyboardType="numeric"
+                      value={newLedgerOpeningAmount}
+                      onChangeText={setNewLedgerOpeningAmount}
+                    />
+                  </View>
+                  <View style={styles.openingTypeCol}>
+                    <TouchableOpacity
+                      style={[
+                        styles.smallChip,
+                        newLedgerOpeningType === 'Dr' && styles.smallChipSelected,
+                      ]}
+                      onPress={() => setNewLedgerOpeningType('Dr')}
+                    >
+                      <Text
+                        style={[
+                          styles.smallChipText,
+                          newLedgerOpeningType === 'Dr' && styles.smallChipTextSelected,
+                        ]}
+                      >
+                        Dr
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.smallChip,
+                        newLedgerOpeningType === 'Cr' && styles.smallChipSelected,
+                      ]}
+                      onPress={() => setNewLedgerOpeningType('Cr')}
+                    >
+                      <Text
+                        style={[
+                          styles.smallChipText,
+                          newLedgerOpeningType === 'Cr' && styles.smallChipTextSelected,
+                        ]}
+                      >
+                        Cr
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.modalButtonsRow}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonSecondary]}
+                    onPress={handleCreateLedgerCancel}
+                  >
+                    <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonPrimary]}
+                    onPress={() => {
+                      void handleCreateLedgerSave();
+                    }}
+                  >
+                    <Text style={styles.modalButtonPrimaryText}>Save & Use</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
-        )}
-      </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </>
   );
 }
@@ -866,16 +851,14 @@ function CashBookForm(props: CashBookProps) {
   } = props;
 
   const otherSuggestions = useMemo(
-    () =>
-      showSuggestions ? findMatchingLedgers(otherLedgerQuery) : [],
+    () => (showSuggestions ? findMatchingLedgers(otherLedgerQuery) : []),
     [otherLedgerQuery, findMatchingLedgers, showSuggestions],
   );
 
   const hasExactOther = otherLedgerQuery.trim().length
     ? otherSuggestions.some(
         (l: Ledger) =>
-          l.name.trim().toLowerCase() ===
-          otherLedgerQuery.trim().toLowerCase(),
+          l.name.trim().toLowerCase() === otherLedgerQuery.trim().toLowerCase(),
       )
     : false;
 
@@ -887,11 +870,7 @@ function CashBookForm(props: CashBookProps) {
   const parseDateSafe = (value: string): Date => {
     if (!value) return new Date();
     const [y, m, d] = value.split('-').map((x) => parseInt(x, 10));
-    if (
-      !Number.isFinite(y) ||
-      !Number.isFinite(m) ||
-      !Number.isFinite(d)
-    ) {
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
       return new Date();
     }
     return new Date(y, m - 1, d);
@@ -919,12 +898,7 @@ function CashBookForm(props: CashBookProps) {
           onPress={() => setShowCashDatePicker(true)}
           disabled={isSaving}
         >
-          <TextInput
-            style={styles.input}
-            value={cashDate}
-            editable={false}
-            pointerEvents="none"
-          />
+          <TextInput style={styles.input} value={cashDate} editable={false} pointerEvents="none" />
         </TouchableOpacity>
         {showCashDatePicker && (
           <DateTimePicker
@@ -1098,20 +1072,12 @@ function JournalForm(props: JournalProps) {
     isSaving,
   } = props;
 
-  const updateLine = (
-    type: 'dr' | 'cr',
-    id: string,
-    patch: Partial<Line>,
-  ) => {
+  const updateLine = (type: 'dr' | 'cr', id: string, patch: Partial<Line>) => {
     if (type === 'dr') {
-      const updated = debitLines.map((l) =>
-        l.id === id ? { ...l, ...patch } : l,
-      );
+      const updated = debitLines.map((l) => (l.id === id ? { ...l, ...patch } : l));
       setDebitLines(updated);
     } else {
-      const updated = creditLines.map((l) =>
-        l.id === id ? { ...l, ...patch } : l,
-      );
+      const updated = creditLines.map((l) => (l.id === id ? { ...l, ...patch } : l));
       setCreditLines(updated);
     }
   };
@@ -1145,15 +1111,12 @@ function JournalForm(props: JournalProps) {
 
   const renderLine = (type: 'dr' | 'cr', line: Line, index: number) => {
     const suggestions =
-      line.showSuggestions === false
-        ? []
-        : findMatchingLedgers(line.ledgerName);
+      line.showSuggestions === false ? [] : findMatchingLedgers(line.ledgerName);
     const hasExact =
       line.ledgerName.trim().length > 0
         ? suggestions.some(
             (l: Ledger) =>
-              l.name.trim().toLowerCase() ===
-              line.ledgerName.trim().toLowerCase(),
+              l.name.trim().toLowerCase() === line.ledgerName.trim().toLowerCase(),
           )
         : false;
 
@@ -1173,10 +1136,7 @@ function JournalForm(props: JournalProps) {
             style={styles.input}
             value={line.ledgerName}
             onChangeText={(v) =>
-              updateLine(type, line.id, {
-                ledgerName: v,
-                showSuggestions: true,
-              })
+              updateLine(type, line.id, { ledgerName: v, showSuggestions: true })
             }
             editable={!isSaving}
           />
@@ -1187,10 +1147,7 @@ function JournalForm(props: JournalProps) {
                   key={ledger.id}
                   style={styles.suggestionItem}
                   onPress={() =>
-                    updateLine(type, line.id, {
-                      ledgerName: ledger.name,
-                      showSuggestions: false,
-                    })
+                    updateLine(type, line.id, { ledgerName: ledger.name, showSuggestions: false })
                   }
                 >
                   <Text style={styles.suggestionText}>{ledger.name}</Text>
@@ -1237,23 +1194,13 @@ function JournalForm(props: JournalProps) {
     );
   };
 
-  const totalDr = debitLines.reduce(
-    (s, l) => s + (parseFloat(l.amount || '0') || 0),
-    0,
-  );
-  const totalCr = creditLines.reduce(
-    (s, l) => s + (parseFloat(l.amount || '0') || 0),
-    0,
-  );
+  const totalDr = debitLines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
+  const totalCr = creditLines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
 
   const parseDateSafe = (value: string): Date => {
     if (!value) return new Date();
     const [y, m, d] = value.split('-').map((x) => parseInt(x, 10));
-    if (
-      !Number.isFinite(y) ||
-      !Number.isFinite(m) ||
-      !Number.isFinite(d)
-    ) {
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
       return new Date();
     }
     return new Date(y, m - 1, d);
@@ -1279,12 +1226,7 @@ function JournalForm(props: JournalProps) {
         onPress={() => setShowDatePicker(true)}
         disabled={isSaving}
       >
-        <TextInput
-          style={styles.input}
-          value={date}
-          editable={false}
-          pointerEvents="none"
-        />
+        <TextInput style={styles.input} value={date} editable={false} pointerEvents="none" />
       </TouchableOpacity>
       {showDatePicker && (
         <DateTimePicker
@@ -1328,9 +1270,7 @@ function JournalForm(props: JournalProps) {
         </Text>
       </View>
       {Math.abs(totalDr - totalCr) > 0.001 && (
-        <Text style={styles.mismatchText}>
-          Dr and Cr totals must be equal for a valid journal.
-        </Text>
+        <Text style={styles.mismatchText}>Dr and Cr totals must be equal for a valid journal.</Text>
       )}
 
       <Text style={[styles.label, { marginTop: 10 }]}>Narration</Text>
