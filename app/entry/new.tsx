@@ -67,8 +67,7 @@ export default function NewEntryScreen() {
 
   // ✅ safe on iOS/Android/Web (no header context needed)
   const insets = useSafeAreaInsets();
-  const keyboardVerticalOffset =
-    Platform.OS === 'ios' ? insets.top + 64 : 0;
+  const keyboardVerticalOffset = Platform.OS === 'ios' ? insets.top + 64 : 0;
 
   const getLedgerDisplayName = React.useCallback(
     (ledger: Ledger | null | undefined) => {
@@ -135,6 +134,20 @@ export default function NewEntryScreen() {
   const [newLedgerOpeningType, setNewLedgerOpeningType] =
     useState<'Dr' | 'Cr'>('Dr');
 
+  // ✅ UX: show progress text + prevent multiple taps while creating ledger
+  const [isCreatingLedger, setIsCreatingLedger] = useState(false);
+  const [ledgerCreateStage, setLedgerCreateStage] = useState<
+    'idle' | 'creating' | 'done'
+  >('idle');
+  const closeCreateLedgerModalAfterDone = () => {
+    // show "New account created" briefly, then close
+    setTimeout(() => {
+      setCreateCtx(null);
+      setIsCreatingLedger(false);
+      setLedgerCreateStage('idle');
+    }, 650);
+  };
+
   // 🔹 Fixed Cash A/C finder: any ledger jiska naam me "cash" ho
   const cashLedgers = useMemo(
     () =>
@@ -190,19 +203,32 @@ export default function NewEntryScreen() {
     setNewLedgerNature('Asset'); // default
     setNewLedgerOpeningAmount('');
     setNewLedgerOpeningType('Dr');
+
+    // reset UX status each time modal opens
+    setIsCreatingLedger(false);
+    setLedgerCreateStage('idle');
   };
 
   const handleCreateLedgerCancel = () => {
+    if (isCreatingLedger) return; // ✅ prevent cancel during processing
     setCreateCtx(null);
+    setIsCreatingLedger(false);
+    setLedgerCreateStage('idle');
   };
 
   const handleCreateLedgerSave = async () => {
     if (!createCtx) return;
+    if (isCreatingLedger) return; // ✅ lock multiple taps
+
+    const ctx = createCtx; // capture current ctx
     const name = newLedgerName.trim();
     if (!name) {
       Alert.alert('Validation', 'Please enter ledger name.');
       return;
     }
+
+    setIsCreatingLedger(true);
+    setLedgerCreateStage('creating');
 
     try {
       const nature = newLedgerNature;
@@ -226,12 +252,11 @@ export default function NewEntryScreen() {
 
       const existing = findExistingByExactName(name);
       if (existing) {
-        Alert.alert(
-          'Already Exists',
-          `Ledger "${name}" already exists. Using existing one.`,
-        );
-        applyCreatedLedger(existing, createCtx);
-        setCreateCtx(null);
+        applyCreatedLedger(existing, ctx);
+
+        // ✅ show done status, then close
+        setLedgerCreateStage('done');
+        closeCreateLedgerModalAfterDone();
         return;
       }
 
@@ -243,6 +268,8 @@ export default function NewEntryScreen() {
       });
 
       if (!newLedger) {
+        setIsCreatingLedger(false);
+        setLedgerCreateStage('idle');
         Alert.alert('Error', 'Failed to create ledger.');
         return;
       }
@@ -277,10 +304,15 @@ export default function NewEntryScreen() {
         }
       }
 
-      applyCreatedLedger(newLedger, createCtx);
-      setCreateCtx(null);
+      applyCreatedLedger(newLedger, ctx);
+
+      // ✅ show done status, then close
+      setLedgerCreateStage('done');
+      closeCreateLedgerModalAfterDone();
     } catch (err) {
       console.error('[Ledger] Failed to create ledger', err);
+      setIsCreatingLedger(false);
+      setLedgerCreateStage('idle');
       Alert.alert('Error', 'Failed to create ledger. Please try again.');
     }
   };
@@ -337,7 +369,10 @@ export default function NewEntryScreen() {
       // 🔹 Fixed Cash A/C resolve
       const usedCashLedger = cashLedgers[0];
       if (!usedCashLedger) {
-        Alert.alert('Cash ledger missing', 'Please create a "Cash A/C" ledger first.');
+        Alert.alert(
+          'Cash ledger missing',
+          'Please create a "Cash A/C" ledger first.',
+        );
         return;
       }
 
@@ -423,7 +458,10 @@ export default function NewEntryScreen() {
         .filter((l) => l.ledgerName.trim() && l.amountNum > 0);
 
       if (drLines.length === 0 || crLines.length === 0) {
-        Alert.alert('Validation', 'Please enter at least one debit and one credit line.');
+        Alert.alert(
+          'Validation',
+          'Please enter at least one debit and one credit line.',
+        );
         return;
       }
 
@@ -448,7 +486,11 @@ export default function NewEntryScreen() {
 
       const missing: { type: 'dr' | 'cr'; lineId: string; name: string }[] = [];
 
-      const resolveExisting = (type: 'dr' | 'cr', lineId: string, name: string) => {
+      const resolveExisting = (
+        type: 'dr' | 'cr',
+        lineId: string,
+        name: string,
+      ) => {
         const ledger = findExistingByExactName(name);
         if (!ledger) {
           missing.push({ type, lineId, name });
@@ -473,7 +515,10 @@ export default function NewEntryScreen() {
           name: first.name,
         };
         openCreateLedger(ctx);
-        Alert.alert('Create Ledger', `Ledger "${first.name}" does not exist yet. Please create it first.`);
+        Alert.alert(
+          'Create Ledger',
+          `Ledger "${first.name}" does not exist yet. Please create it first.`,
+        );
         return;
       }
 
@@ -554,7 +599,12 @@ export default function NewEntryScreen() {
         activeOpacity={0.7}
         disabled={isSavingEntry}
       >
-        <Text style={[styles.modeChipText, selected && styles.modeChipTextSelected]}>
+        <Text
+          style={[
+            styles.modeChipText,
+            selected && styles.modeChipTextSelected,
+          ]}
+        >
           {label}
         </Text>
       </TouchableOpacity>
@@ -646,6 +696,7 @@ export default function NewEntryScreen() {
                   style={styles.input}
                   value={newLedgerName}
                   onChangeText={setNewLedgerName}
+                  editable={!isCreatingLedger && ledgerCreateStage !== 'done'}
                 />
 
                 <Text style={[styles.label, { marginTop: 8 }]}>Ledger Type</Text>
@@ -654,16 +705,20 @@ export default function NewEntryScreen() {
                     style={[
                       styles.smallChip,
                       newLedgerNature === 'Asset' && styles.smallChipSelected,
+                      (isCreatingLedger || ledgerCreateStage === 'done') &&
+                        styles.disabledChip,
                     ]}
                     onPress={() => {
                       setNewLedgerNature('Asset');
                       setNewLedgerOpeningType('Dr');
                     }}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                   >
                     <Text
                       style={[
                         styles.smallChipText,
-                        newLedgerNature === 'Asset' && styles.smallChipTextSelected,
+                        newLedgerNature === 'Asset' &&
+                          styles.smallChipTextSelected,
                       ]}
                     >
                       Asset
@@ -674,16 +729,20 @@ export default function NewEntryScreen() {
                     style={[
                       styles.smallChip,
                       newLedgerNature === 'Liability' && styles.smallChipSelected,
+                      (isCreatingLedger || ledgerCreateStage === 'done') &&
+                        styles.disabledChip,
                     ]}
                     onPress={() => {
                       setNewLedgerNature('Liability');
                       setNewLedgerOpeningType('Cr');
                     }}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                   >
                     <Text
                       style={[
                         styles.smallChipText,
-                        newLedgerNature === 'Liability' && styles.smallChipTextSelected,
+                        newLedgerNature === 'Liability' &&
+                          styles.smallChipTextSelected,
                       ]}
                     >
                       Liability
@@ -694,16 +753,20 @@ export default function NewEntryScreen() {
                     style={[
                       styles.smallChip,
                       newLedgerNature === 'Income' && styles.smallChipSelected,
+                      (isCreatingLedger || ledgerCreateStage === 'done') &&
+                        styles.disabledChip,
                     ]}
                     onPress={() => {
                       setNewLedgerNature('Income');
                       setNewLedgerOpeningType('Cr');
                     }}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                   >
                     <Text
                       style={[
                         styles.smallChipText,
-                        newLedgerNature === 'Income' && styles.smallChipTextSelected,
+                        newLedgerNature === 'Income' &&
+                          styles.smallChipTextSelected,
                       ]}
                     >
                       Income
@@ -714,16 +777,20 @@ export default function NewEntryScreen() {
                     style={[
                       styles.smallChip,
                       newLedgerNature === 'Expense' && styles.smallChipSelected,
+                      (isCreatingLedger || ledgerCreateStage === 'done') &&
+                        styles.disabledChip,
                     ]}
                     onPress={() => {
                       setNewLedgerNature('Expense');
                       setNewLedgerOpeningType('Dr');
                     }}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                   >
                     <Text
                       style={[
                         styles.smallChipText,
-                        newLedgerNature === 'Expense' && styles.smallChipTextSelected,
+                        newLedgerNature === 'Expense' &&
+                          styles.smallChipTextSelected,
                       ]}
                     >
                       Expense
@@ -731,7 +798,9 @@ export default function NewEntryScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <Text style={[styles.label, { marginTop: 8 }]}>Opening Balance (optional)</Text>
+                <Text style={[styles.label, { marginTop: 8 }]}>
+                  Opening Balance (optional)
+                </Text>
                 <View style={styles.openingRow}>
                   <View style={{ flex: 1 }}>
                     <TextInput
@@ -739,6 +808,7 @@ export default function NewEntryScreen() {
                       keyboardType="numeric"
                       value={newLedgerOpeningAmount}
                       onChangeText={setNewLedgerOpeningAmount}
+                      editable={!isCreatingLedger && ledgerCreateStage !== 'done'}
                     />
                   </View>
                   <View style={styles.openingTypeCol}>
@@ -746,13 +816,17 @@ export default function NewEntryScreen() {
                       style={[
                         styles.smallChip,
                         newLedgerOpeningType === 'Dr' && styles.smallChipSelected,
+                        (isCreatingLedger || ledgerCreateStage === 'done') &&
+                          styles.disabledChip,
                       ]}
                       onPress={() => setNewLedgerOpeningType('Dr')}
+                      disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                     >
                       <Text
                         style={[
                           styles.smallChipText,
-                          newLedgerOpeningType === 'Dr' && styles.smallChipTextSelected,
+                          newLedgerOpeningType === 'Dr' &&
+                            styles.smallChipTextSelected,
                         ]}
                       >
                         Dr
@@ -762,13 +836,17 @@ export default function NewEntryScreen() {
                       style={[
                         styles.smallChip,
                         newLedgerOpeningType === 'Cr' && styles.smallChipSelected,
+                        (isCreatingLedger || ledgerCreateStage === 'done') &&
+                          styles.disabledChip,
                       ]}
                       onPress={() => setNewLedgerOpeningType('Cr')}
+                      disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                     >
                       <Text
                         style={[
                           styles.smallChipText,
-                          newLedgerOpeningType === 'Cr' && styles.smallChipTextSelected,
+                          newLedgerOpeningType === 'Cr' &&
+                            styles.smallChipTextSelected,
                         ]}
                       >
                         Cr
@@ -779,18 +857,45 @@ export default function NewEntryScreen() {
 
                 <View style={styles.modalButtonsRow}>
                   <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonSecondary]}
+                    style={[
+                      styles.modalButton,
+                      styles.modalButtonSecondary,
+                      (isCreatingLedger || ledgerCreateStage === 'done') &&
+                        styles.disabledChip,
+                    ]}
                     onPress={handleCreateLedgerCancel}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
                   >
                     <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
                   </TouchableOpacity>
+
                   <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonPrimary]}
+                    style={[
+                      styles.modalButton,
+                      styles.modalButtonPrimary,
+                      (isCreatingLedger || ledgerCreateStage === 'done') &&
+                        styles.modalButtonPrimaryDisabled,
+                    ]}
                     onPress={() => {
                       void handleCreateLedgerSave();
                     }}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
+                    activeOpacity={0.85}
                   >
-                    <Text style={styles.modalButtonPrimaryText}>Save & Use</Text>
+                    {ledgerCreateStage === 'creating' ? (
+                      <View style={styles.saveButtonRow}>
+                        <ActivityIndicator size="small" color="#ffffff" />
+                        <Text style={styles.modalButtonPrimaryText}>
+                          Creating accounts...
+                        </Text>
+                      </View>
+                    ) : ledgerCreateStage === 'done' ? (
+                      <Text style={styles.modalButtonPrimaryText}>
+                        New account created
+                      </Text>
+                    ) : (
+                      <Text style={styles.modalButtonPrimaryText}>Save & Use</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -898,7 +1003,12 @@ function CashBookForm(props: CashBookProps) {
           onPress={() => setShowCashDatePicker(true)}
           disabled={isSaving}
         >
-          <TextInput style={styles.input} value={cashDate} editable={false} pointerEvents="none" />
+          <TextInput
+            style={styles.input}
+            value={cashDate}
+            editable={false}
+            pointerEvents="none"
+          />
         </TouchableOpacity>
         {showCashDatePicker && (
           <DateTimePicker
@@ -1074,10 +1184,14 @@ function JournalForm(props: JournalProps) {
 
   const updateLine = (type: 'dr' | 'cr', id: string, patch: Partial<Line>) => {
     if (type === 'dr') {
-      const updated = debitLines.map((l) => (l.id === id ? { ...l, ...patch } : l));
+      const updated = debitLines.map((l) =>
+        l.id === id ? { ...l, ...patch } : l,
+      );
       setDebitLines(updated);
     } else {
-      const updated = creditLines.map((l) => (l.id === id ? { ...l, ...patch } : l));
+      const updated = creditLines.map((l) =>
+        l.id === id ? { ...l, ...patch } : l,
+      );
       setCreditLines(updated);
     }
   };
@@ -1116,7 +1230,8 @@ function JournalForm(props: JournalProps) {
       line.ledgerName.trim().length > 0
         ? suggestions.some(
             (l: Ledger) =>
-              l.name.trim().toLowerCase() === line.ledgerName.trim().toLowerCase(),
+              l.name.trim().toLowerCase() ===
+              line.ledgerName.trim().toLowerCase(),
           )
         : false;
 
@@ -1147,7 +1262,10 @@ function JournalForm(props: JournalProps) {
                   key={ledger.id}
                   style={styles.suggestionItem}
                   onPress={() =>
-                    updateLine(type, line.id, { ledgerName: ledger.name, showSuggestions: false })
+                    updateLine(type, line.id, {
+                      ledgerName: ledger.name,
+                      showSuggestions: false,
+                    })
                   }
                 >
                   <Text style={styles.suggestionText}>{ledger.name}</Text>
@@ -1194,8 +1312,14 @@ function JournalForm(props: JournalProps) {
     );
   };
 
-  const totalDr = debitLines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
-  const totalCr = creditLines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
+  const totalDr = debitLines.reduce(
+    (s, l) => s + (parseFloat(l.amount || '0') || 0),
+    0,
+  );
+  const totalCr = creditLines.reduce(
+    (s, l) => s + (parseFloat(l.amount || '0') || 0),
+    0,
+  );
 
   const parseDateSafe = (value: string): Date => {
     if (!value) return new Date();
@@ -1226,7 +1350,12 @@ function JournalForm(props: JournalProps) {
         onPress={() => setShowDatePicker(true)}
         disabled={isSaving}
       >
-        <TextInput style={styles.input} value={date} editable={false} pointerEvents="none" />
+        <TextInput
+          style={styles.input}
+          value={date}
+          editable={false}
+          pointerEvents="none"
+        />
       </TouchableOpacity>
       {showDatePicker && (
         <DateTimePicker
@@ -1270,7 +1399,9 @@ function JournalForm(props: JournalProps) {
         </Text>
       </View>
       {Math.abs(totalDr - totalCr) > 0.001 && (
-        <Text style={styles.mismatchText}>Dr and Cr totals must be equal for a valid journal.</Text>
+        <Text style={styles.mismatchText}>
+          Dr and Cr totals must be equal for a valid journal.
+        </Text>
       )}
 
       <Text style={[styles.label, { marginTop: 10 }]}>Narration</Text>
@@ -1612,6 +1743,9 @@ const styles = StyleSheet.create({
   },
   modalButtonPrimary: {
     backgroundColor: COLORS.primary,
+  },
+  modalButtonPrimaryDisabled: {
+    opacity: 0.75,
   },
   modalButtonSecondaryText: {
     fontSize: 13,
