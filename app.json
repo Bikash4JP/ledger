@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "ledger",
-    "slug": "ledger",
+    "name": "MobiLedger",
+    "slug": "mobiledger",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -49,7 +49,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b1c35385-3721-4a77-b4ef-e11742bbe521"
+        "projectId": "c294a215-934e-4239-b46d-6af992cc82cd"
       }
     }
   }

@@ -33,14 +33,21 @@ const COLORS = {
   danger: '#d32f2f',
 };
 
+const OPENING_LEDGER_LABEL = 'Opening Balance Adjustment';
+
 type LedgerLine = {
   id: string;
-  date: string;
+  date: string; // YYYY-MM-DD or '' (blank)
   particular: string;
   remarks: string;
   debit: number;
   credit: number;
   balance: number; // running balance (Dr +, Cr -)
+  isSyntheticOpening?: boolean; // only for the generated Opening row (B/F)
+};
+
+type BaseLine = Omit<LedgerLine, 'balance'> & {
+  isOpeningTx?: boolean; // real tx where other ledger is Opening Balance Adjustment
 };
 
 /**
@@ -134,7 +141,8 @@ export default function LedgerDetailScreen() {
     }
   }, [ledger]);
 
-  const lines: LedgerLine[] = useMemo(() => {
+  // Base mapped lines (no running balance yet)
+  const baseLines: BaseLine[] = useMemo(() => {
     if (!ledger) return [];
 
     const ledgerTx = transactions.filter(
@@ -142,55 +150,124 @@ export default function LedgerDetailScreen() {
         t.debitLedgerId === ledger.id || t.creditLedgerId === ledger.id,
     );
 
-    const mappedBase = ledgerTx.map((t: Transaction) => {
+    const mapped = ledgerTx.map((t: Transaction) => {
       const isDebit = t.debitLedgerId === ledger.id;
       const otherLedgerId = isDebit ? t.creditLedgerId : t.debitLedgerId;
       const otherLedger =
         ledgers.find((l: Ledger) => l.id === otherLedgerId) ?? null;
 
+      const otherName = otherLedger ? otherLedger.name : otherLedgerId;
+      const isOpeningTx =
+        (otherLedger?.name || '')
+          .toLowerCase()
+          .includes('opening balance') ||
+        otherName.toLowerCase() === OPENING_LEDGER_LABEL.toLowerCase();
+
       return {
         id: t.id,
         date: normalizeDate(t.date),
-        particular: otherLedger ? otherLedger.name : otherLedgerId,
+        particular: otherName,
         remarks: t.narration || '',
         debit: isDebit ? t.amount : 0,
         credit: !isDebit ? t.amount : 0,
+        isOpeningTx,
       };
     });
 
-    const filtered = mappedBase.filter((line) => {
+    return mapped;
+  }, [ledger, ledgers, transactions]);
+
+  // Opening balance brought-forward (only when From date is set)
+  const openingBalance = useMemo(() => {
+    if (!fromDate) return 0;
+    return baseLines
+      .filter((l) => l.date && l.date < fromDate)
+      .reduce((sum, l) => sum + (l.debit - l.credit), 0);
+  }, [baseLines, fromDate]);
+
+  // Display lines with:
+  // - Opening Balance row at top (blank date) if openingBalance != 0 and fromDate is set
+  // - If fromDate is NOT set, then any real "Opening Balance Adjustment" tx lines are shown at top with blank date
+  // - Running balance respects the displayed order
+  const lines: LedgerLine[] = useMemo(() => {
+    if (!ledger) return [];
+
+    // Period filtering
+    const period = baseLines.filter((line) => {
       if (fromDate && line.date < fromDate) return false;
       if (toDate && line.date > toDate) return false;
       return true;
     });
 
-    filtered.sort((a, b) => {
+    // Sort helper (stable-ish by date then id)
+    const sortByDateThenId = (a: BaseLine, b: BaseLine) => {
       if (a.date === b.date) return a.id.localeCompare(b.id);
       return a.date < b.date ? -1 : 1;
-    });
+    };
 
-    // 🔹 Running balance: Dr positive, Cr negative
-    let running = 0;
-    const withBalance: LedgerLine[] = filtered.map((line) => {
+    // If no "fromDate" then we want Opening Balance Adjustment tx lines on top (date blank)
+    if (!fromDate) {
+      const openingTx = period.filter((p) => !!p.isOpeningTx).sort((a, b) => {
+        return a.id.localeCompare(b.id);
+      });
+      const rest = period.filter((p) => !p.isOpeningTx).sort(sortByDateThenId);
+
+      const ordered: BaseLine[] = [
+        ...openingTx.map((l) => ({ ...l, date: '' })), // blank date for opening lines
+        ...rest,
+      ];
+
+      let running = 0;
+      return ordered.map((line) => {
+        running += line.debit - line.credit;
+        return { ...line, balance: running };
+      });
+    }
+
+    // With "fromDate", keep chronological order for period lines
+    const ordered = [...period].sort(sortByDateThenId);
+
+    // Build synthetic Opening row at top (blank date) if openingBalance is not zero
+    const openingRow: LedgerLine | null =
+      openingBalance !== 0
+        ? {
+            id: 'opening-balance-bf',
+            date: '', // blank date
+            particular: OPENING_LEDGER_LABEL,
+            remarks: '',
+            debit: openingBalance > 0 ? openingBalance : 0,
+            credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+            balance: openingBalance,
+            isSyntheticOpening: true,
+          }
+        : null;
+
+    let running = openingBalance;
+    const withBalance: LedgerLine[] = ordered.map((line) => {
       running += line.debit - line.credit;
-      return {
-        ...line,
-        balance: running,
-      };
+      return { ...line, balance: running };
     });
 
-    return withBalance;
-  }, [ledger, ledgers, transactions, fromDate, toDate]);
+    return openingRow ? [openingRow, ...withBalance] : withBalance;
+  }, [ledger, baseLines, fromDate, toDate, openingBalance]);
 
+  // Totals should not include the synthetic Opening (B/F) row
   const totals = useMemo(() => {
     return lines.reduce(
       (acc, line) => {
+        if (line.isSyntheticOpening) return acc;
         acc.debit += line.debit;
         acc.credit += line.credit;
         return acc;
       },
       { debit: 0, credit: 0 },
     );
+  }, [lines]);
+
+  // Closing balance should be the last running balance (includes opening if present)
+  const closingBalanceValue = useMemo(() => {
+    if (lines.length === 0) return 0;
+    return lines[lines.length - 1].balance || 0;
   }, [lines]);
 
   if (!ledger) {
@@ -305,12 +382,11 @@ export default function LedgerDetailScreen() {
     );
   };
 
-  const closingDiff = totals.debit - totals.credit;
   const closingBalanceText =
-    closingDiff === 0
+    closingBalanceValue === 0
       ? '0'
-      : `${formatAmount(Math.abs(closingDiff))} ${
-          closingDiff > 0 ? 'Dr' : 'Cr'
+      : `${formatAmount(Math.abs(closingBalanceValue))} ${
+          closingBalanceValue > 0 ? 'Dr' : 'Cr'
         }`;
 
   // --------- Date picker helpers ----------
@@ -358,12 +434,12 @@ export default function LedgerDetailScreen() {
         .map(
           (line) => `
         <tr>
-          <td>${line.date}</td>
+          <td>${line.date || ''}</td>
           <td>
-            <strong>${line.particular}</strong><br/>
+            <strong style="font-weight:700;color:#000;">${line.particular}</strong><br/>
             ${
               line.remarks
-                ? `<span style="font-size:10px;color:#666;">${line.remarks}</span>`
+                ? `<span style="font-size:10px;color:#000;font-style:italic;">${line.remarks}</span>`
                 : ''
             }
           </td>
@@ -399,38 +475,53 @@ export default function LedgerDetailScreen() {
               body {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                 font-size: 11px;
-                color: #111;
+                color: #000;
                 padding: 16px;
               }
-              h1, h2, h3 { margin: 0; padding: 0; }
-              .app-name { font-size: 10px; color: #777; text-align:center; }
-              .stmt-title { font-size: 13px; font-weight: 700; text-align:center; margin-top: 2px; letter-spacing: 1px; }
-              .ledger-title { font-size: 18px; font-weight: 700; text-align:center; margin-top: 8px; }
-              .ledger-meta { font-size: 11px; text-align:center; color:#777; margin-top: 2px; }
-              .period { font-size: 10px; text-align:center; margin-top: 4px; }
-              .closing { font-size: 10px; text-align:center; margin-top: 2px; }
+              h1, h2, h3 { margin: 0; padding: 0; color:#000; }
+              .app-name { font-size: 10px; color: #000; text-align:center; }
+              .stmt-title { font-size: 13px; font-weight: 700; text-align:center; margin-top: 2px; letter-spacing: 1px; color:#000; }
+              .ledger-title { font-size: 18px; font-weight: 700; text-align:center; margin-top: 8px; color:#000; }
+              .ledger-meta { font-size: 11px; text-align:center; color:#000; margin-top: 2px; }
+              .period { font-size: 10px; text-align:center; margin-top: 4px; color:#000; }
+              .closing { font-size: 10px; text-align:center; margin-top: 2px; color:#000; }
+
               table {
                 width: 100%;
                 border-collapse: collapse;
                 margin-top: 12px;
+                color:#000;
               }
-              thead tr:first-child {
-                border-top: 1px solid #000;
-                border-bottom: 1px solid #000;
+
+              /* Header row: 2px top/bottom solid */
+              thead tr {
+                border-top: 1.5px solid #000;
+                border-bottom: 1.5px solid #000;
               }
+
               th, td {
                 padding: 4px 3px;
-                border-bottom: 0.5px solid #ddd;
+                color:#000;
               }
+
+              /* Data rows: border opacity 0.5 */
+              tbody td {
+                border-bottom: 1px solid rgba(0,0,0,0.5);
+              }
+
               th {
                 font-size: 10px;
                 text-align: left;
+                font-weight:700;
               }
               .amount { text-align: right; }
+
+              /* Totals row: 2px top/bottom */
               tfoot td {
                 border-top: 1px solid #000;
+                border-bottom: 1px solid #000;
                 font-weight: 700;
-                background: #fdf7fb;
+                background: #fff;
               }
             </style>
           </head>
@@ -470,7 +561,7 @@ export default function LedgerDetailScreen() {
                     ${formatNumberWithOptionalDecimals(totals.credit)}
                   </td>
                   <td class="amount">
-                    ${formatBalance(closingDiff)}
+                    ${formatBalance(closingBalanceValue)}
                   </td>
                 </tr>
               </tfoot>
@@ -655,7 +746,7 @@ export default function LedgerDetailScreen() {
               {lines.map((line) => (
                 <View key={line.id} style={styles.tableRow}>
                   <View style={styles.colDate}>
-                    <Text style={styles.dateText}>{line.date}</Text>
+                    <Text style={styles.dateText}>{line.date || ''}</Text>
                   </View>
 
                   <View style={styles.particularCell}>
@@ -726,7 +817,7 @@ export default function LedgerDetailScreen() {
                       styles.right,
                     ]}
                   >
-                    {formatBalance(closingDiff)}
+                    {formatBalance(closingBalanceValue)}
                   </Text>
                 </View>
               </View>
@@ -1014,13 +1105,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     width: '100%',
   },
+
+  // ✅ Header row: 2px solid black top & bottom
   tableHeader: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderTopWidth: 2,
+    borderTopColor: '#000000',
+    borderBottomWidth: 2,
+    borderBottomColor: '#000000',
     paddingBottom: 4,
     marginBottom: 4,
   },
+
   colDate: {
     flex: 1.1,
   },
@@ -1038,12 +1134,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.dark,
   },
+
+  // ✅ Data borders: opacity 0.5
   tableRow: {
     flexDirection: 'row',
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
+    borderBottomColor: 'rgba(0,0,0,0.5)',
   },
+
   dateText: {
     fontSize: 11,
     color: COLORS.muted,
@@ -1075,15 +1174,23 @@ const styles = StyleSheet.create({
   right: {
     textAlign: 'right',
   },
+
+  // (keep component but hide it to avoid double lines)
   tableFooterLine: {
-    height: 1,
-    backgroundColor: '#000000',
-    marginTop: 4,
-    marginBottom: 4,
+    height: 0,
+    marginTop: 0,
+    marginBottom: 0,
   },
+
+  // ✅ Total row: 2px top & bottom
   totalRow: {
     backgroundColor: '#fdf7fb',
+    borderTopWidth: 1,
+    borderTopColor: '#000000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
   },
+
   totalLabel: {
     fontSize: 12,
     fontWeight: '700',
