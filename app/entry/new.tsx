@@ -3,6 +3,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -70,6 +71,10 @@ export default function NewEntryScreen() {
   );
 
   const [entryType, setEntryType] = useState<EntryType>('cashBook');
+
+  // ✅ Saving state + lock to prevent double submit
+  const [isSavingEntry, setIsSavingEntry] = useState(false);
+  const saveLockRef = React.useRef(false);
 
   // ----- CASH BOOK STATE -----
   const [cashDirection, setCashDirection] = useState<'in' | 'out'>('out');
@@ -303,51 +308,65 @@ export default function NewEntryScreen() {
     }
   };
 
+  // ✅ helper: prevents double tap / double request
+  const beginSave = (): boolean => {
+    if (saveLockRef.current) return false;
+    saveLockRef.current = true;
+    setIsSavingEntry(true);
+    return true;
+  };
+  const endSave = () => {
+    saveLockRef.current = false;
+    setIsSavingEntry(false);
+  };
+
   // ========== SAVE: CASH BOOK ==========
   const handleSaveCashBook = async () => {
-    const amount = parseAmount(cashAmount);
-    if (!amount || amount <= 0) {
-      Alert.alert('Validation', 'Please enter amount.');
-      return;
-    }
-
-    // 🔹 Fixed Cash A/C resolve
-    const usedCashLedger = cashLedgers[0];
-    if (!usedCashLedger) {
-      Alert.alert(
-        'Cash ledger missing',
-        'Please create a "Cash A/C" ledger first.',
-      );
-      return;
-    }
-
-    // Resolve other ledger
-    let usedOtherLedger: Ledger | undefined = undefined;
-    if (otherLedgerId) {
-      usedOtherLedger = ledgers.find((l) => l.id === otherLedgerId);
-    }
-    if (!usedOtherLedger && otherLedgerQuery.trim()) {
-      usedOtherLedger = findExistingByExactName(otherLedgerQuery);
-    }
-    if (!usedOtherLedger) {
-      Alert.alert(
-        'Select Ledger',
-        'Please select or create the related ledger (Rent, Party, etc.).',
-      );
-      return;
-    }
-
-    const date = cashDate.trim() || todayDateStr;
-    const narration =
-      cashNarration.trim() ||
-      (cashDirection === 'out'
-        ? `Payment to ${usedOtherLedger.name}`
-        : `Receipt from ${usedOtherLedger.name}`);
-
-    const voucherType: VoucherType =
-      cashDirection === 'out' ? 'Payment' : 'Receipt';
+    if (!beginSave()) return;
 
     try {
+      const amount = parseAmount(cashAmount);
+      if (!amount || amount <= 0) {
+        Alert.alert('Validation', 'Please enter amount.');
+        return;
+      }
+
+      // 🔹 Fixed Cash A/C resolve
+      const usedCashLedger = cashLedgers[0];
+      if (!usedCashLedger) {
+        Alert.alert(
+          'Cash ledger missing',
+          'Please create a "Cash A/C" ledger first.',
+        );
+        return;
+      }
+
+      // Resolve other ledger
+      let usedOtherLedger: Ledger | undefined = undefined;
+      if (otherLedgerId) {
+        usedOtherLedger = ledgers.find((l) => l.id === otherLedgerId);
+      }
+      if (!usedOtherLedger && otherLedgerQuery.trim()) {
+        usedOtherLedger = findExistingByExactName(otherLedgerQuery);
+      }
+      if (!usedOtherLedger) {
+        Alert.alert(
+          'Select Ledger',
+          'Please select or create the related ledger (Rent, Party, etc.).',
+        );
+        return;
+      }
+
+      const date = cashDate.trim() || todayDateStr;
+      const narration =
+        cashNarration.trim() ||
+        (cashDirection === 'out'
+          ? `Payment to ${usedOtherLedger.name}`
+          : `Receipt from ${usedOtherLedger.name}`);
+
+      const voucherType: VoucherType =
+        cashDirection === 'out' ? 'Payment' : 'Receipt';
+
       if (cashDirection === 'out') {
         // Other A/c Dr  To Cash
         await addTransaction({
@@ -382,94 +401,98 @@ export default function NewEntryScreen() {
         'Error',
         'Failed to save cash entry. Please check your connection / backend.',
       );
+    } finally {
+      endSave();
     }
   };
 
   // ========== SAVE: JOURNAL ==========
   const handleSaveJournal = async () => {
-    const drLines = debitLines
-      .map((line) => ({
-        ...line,
-        amountNum: parseAmount(line.amount),
-      }))
-      .filter((l) => l.ledgerName.trim() && l.amountNum > 0);
-
-    const crLines = creditLines
-      .map((line) => ({
-        ...line,
-        amountNum: parseAmount(line.amount),
-      }))
-      .filter((l) => l.ledgerName.trim() && l.amountNum > 0);
-
-    if (drLines.length === 0 || crLines.length === 0) {
-      Alert.alert(
-        'Validation',
-        'Please enter at least one debit and one credit line.',
-      );
-      return;
-    }
-
-    const totalDr = drLines.reduce((s, l) => s + l.amountNum, 0);
-    const totalCr = crLines.reduce((s, l) => s + l.amountNum, 0);
-
-    if (Math.abs(totalDr - totalCr) > 0.001) {
-      Alert.alert(
-        'Validation',
-        `Debit (¥${totalDr.toLocaleString()}) is not equal to Credit (¥${totalCr.toLocaleString()}).`,
-      );
-      return;
-    }
-
-    if (crLines.length > 1 && drLines.length > 1) {
-      Alert.alert(
-        'Limitation',
-        'Abhi ke liye: ya to multiple Debits with a single Credit, ya multiple Credits with a single Debit supported hai.',
-      );
-      return;
-    }
-
-    const missing: { type: 'dr' | 'cr'; lineId: string; name: string }[] = [];
-
-    const resolveExisting = (
-      type: 'dr' | 'cr',
-      lineId: string,
-      name: string,
-    ) => {
-      const ledger = findExistingByExactName(name);
-      if (!ledger) {
-        missing.push({ type, lineId, name });
-      }
-      return ledger;
-    };
-
-    const drResolved = drLines.map((l) => ({
-      ...l,
-      ledger: resolveExisting('dr', l.id, l.ledgerName),
-    }));
-    const crResolved = crLines.map((l) => ({
-      ...l,
-      ledger: resolveExisting('cr', l.id, l.ledgerName),
-    }));
-
-    if (missing.length > 0) {
-      const first = missing[0];
-      const ctx: CreateLedgerContext = {
-        source: first.type === 'dr' ? 'journal-dr' : 'journal-cr',
-        lineId: first.lineId,
-        name: first.name,
-      };
-      openCreateLedger(ctx);
-      Alert.alert(
-        'Create Ledger',
-        `Ledger "${first.name}" does not exist yet. Please create it first.`,
-      );
-      return;
-    }
-
-    const date = journalDate.trim() || todayDateStr;
-    const narration = journalNarration.trim() || 'Journal entry';
+    if (!beginSave()) return;
 
     try {
+      const drLines = debitLines
+        .map((line) => ({
+          ...line,
+          amountNum: parseAmount(line.amount),
+        }))
+        .filter((l) => l.ledgerName.trim() && l.amountNum > 0);
+
+      const crLines = creditLines
+        .map((line) => ({
+          ...line,
+          amountNum: parseAmount(line.amount),
+        }))
+        .filter((l) => l.ledgerName.trim() && l.amountNum > 0);
+
+      if (drLines.length === 0 || crLines.length === 0) {
+        Alert.alert(
+          'Validation',
+          'Please enter at least one debit and one credit line.',
+        );
+        return;
+      }
+
+      const totalDr = drLines.reduce((s, l) => s + l.amountNum, 0);
+      const totalCr = crLines.reduce((s, l) => s + l.amountNum, 0);
+
+      if (Math.abs(totalDr - totalCr) > 0.001) {
+        Alert.alert(
+          'Validation',
+          `Debit (¥${totalDr.toLocaleString()}) is not equal to Credit (¥${totalCr.toLocaleString()}).`,
+        );
+        return;
+      }
+
+      if (crLines.length > 1 && drLines.length > 1) {
+        Alert.alert(
+          'Limitation',
+          'Abhi ke liye: ya to multiple Debits with a single Credit, ya multiple Credits with a single Debit supported hai.',
+        );
+        return;
+      }
+
+      const missing: { type: 'dr' | 'cr'; lineId: string; name: string }[] = [];
+
+      const resolveExisting = (
+        type: 'dr' | 'cr',
+        lineId: string,
+        name: string,
+      ) => {
+        const ledger = findExistingByExactName(name);
+        if (!ledger) {
+          missing.push({ type, lineId, name });
+        }
+        return ledger;
+      };
+
+      const drResolved = drLines.map((l) => ({
+        ...l,
+        ledger: resolveExisting('dr', l.id, l.ledgerName),
+      }));
+      const crResolved = crLines.map((l) => ({
+        ...l,
+        ledger: resolveExisting('cr', l.id, l.ledgerName),
+      }));
+
+      if (missing.length > 0) {
+        const first = missing[0];
+        const ctx: CreateLedgerContext = {
+          source: first.type === 'dr' ? 'journal-dr' : 'journal-cr',
+          lineId: first.lineId,
+          name: first.name,
+        };
+        openCreateLedger(ctx);
+        Alert.alert(
+          'Create Ledger',
+          `Ledger "${first.name}" does not exist yet. Please create it first.`,
+        );
+        return;
+      }
+
+      const date = journalDate.trim() || todayDateStr;
+      const narration = journalNarration.trim() || 'Journal entry';
+
       const ops: Promise<unknown>[] = [];
 
       if (crResolved.length === 1) {
@@ -528,6 +551,8 @@ export default function NewEntryScreen() {
         'Error',
         'Failed to save journal entry. Please check your connection / backend.',
       );
+    } finally {
+      endSave();
     }
   };
 
@@ -536,9 +561,14 @@ export default function NewEntryScreen() {
     return (
       <TouchableOpacity
         key={value}
-        style={[styles.modeChip, selected && styles.modeChipSelected]}
+        style={[
+          styles.modeChip,
+          selected && styles.modeChipSelected,
+          isSavingEntry && styles.disabledChip,
+        ]}
         onPress={() => setEntryType(value)}
         activeOpacity={0.7}
+        disabled={isSavingEntry}
       >
         <Text
           style={[styles.modeChipText, selected && styles.modeChipTextSelected]}
@@ -585,6 +615,7 @@ export default function NewEntryScreen() {
               onRequestCreateLedger={openCreateLedger}
               showSuggestions={showCashSuggestions}
               setShowSuggestions={setShowCashSuggestions}
+              isSaving={isSavingEntry}
             />
           ) : (
             <JournalForm
@@ -601,6 +632,7 @@ export default function NewEntryScreen() {
               findMatchingLedgers={findMatchingLedgers}
               onSave={handleSaveJournal}
               onRequestCreateLedger={openCreateLedger}
+              isSaving={isSavingEntry}
             />
           )}
         </ScrollView>
@@ -766,9 +798,7 @@ export default function NewEntryScreen() {
                   style={[styles.modalButton, styles.modalButtonSecondary]}
                   onPress={handleCreateLedgerCancel}
                 >
-                  <Text style={styles.modalButtonSecondaryText}>
-                    Cancel
-                  </Text>
+                  <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonPrimary]}
@@ -776,9 +806,7 @@ export default function NewEntryScreen() {
                     void handleCreateLedgerSave();
                   }}
                 >
-                  <Text style={styles.modalButtonPrimaryText}>
-                    Save & Use
-                  </Text>
+                  <Text style={styles.modalButtonPrimaryText}>Save & Use</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -810,6 +838,7 @@ type CashBookProps = {
   onRequestCreateLedger: (ctx: CreateLedgerContext) => void;
   showSuggestions: boolean;
   setShowSuggestions: (v: boolean) => void;
+  isSaving: boolean;
 };
 
 function CashBookForm(props: CashBookProps) {
@@ -833,6 +862,7 @@ function CashBookForm(props: CashBookProps) {
     onRequestCreateLedger,
     showSuggestions,
     setShowSuggestions,
+    isSaving,
   } = props;
 
   const otherSuggestions = useMemo(
@@ -887,6 +917,7 @@ function CashBookForm(props: CashBookProps) {
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => setShowCashDatePicker(true)}
+          disabled={isSaving}
         >
           <TextInput
             style={styles.input}
@@ -910,8 +941,10 @@ function CashBookForm(props: CashBookProps) {
             style={[
               styles.cashDirButton,
               cashDirection === 'out' && styles.cashDirButtonOutSelected,
+              isSaving && styles.disabledChip,
             ]}
             onPress={() => setCashDirection('out')}
+            disabled={isSaving}
           >
             <Text
               style={[
@@ -926,8 +959,10 @@ function CashBookForm(props: CashBookProps) {
             style={[
               styles.cashDirButton,
               cashDirection === 'in' && styles.cashDirButtonInSelected,
+              isSaving && styles.disabledChip,
             ]}
             onPress={() => setCashDirection('in')}
+            disabled={isSaving}
           >
             <Text
               style={[
@@ -951,8 +986,9 @@ function CashBookForm(props: CashBookProps) {
             setOtherLedgerId(undefined);
             setShowSuggestions(true);
           }}
+          editable={!isSaving}
         />
-        {shouldShowSuggestions && (
+        {shouldShowSuggestions && !isSaving && (
           <View style={styles.suggestionBox}>
             {otherSuggestions.map((ledger: Ledger) => (
               <TouchableOpacity
@@ -994,6 +1030,7 @@ function CashBookForm(props: CashBookProps) {
           placeholder="Amount"
           placeholderTextColor="#999999"
           onChangeText={setAmount}
+          editable={!isSaving}
         />
 
         <Text style={[styles.label, { marginTop: 10 }]}>Narration</Text>
@@ -1002,13 +1039,23 @@ function CashBookForm(props: CashBookProps) {
           multiline
           value={narration}
           onChangeText={setNarration}
+          editable={!isSaving}
         />
 
         <TouchableOpacity
-          style={styles.saveButton}
+          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
           onPress={() => void onSave()}
+          disabled={isSaving}
+          activeOpacity={0.85}
         >
-          <Text style={styles.saveButtonText}>Save Cash Entry</Text>
+          {isSaving ? (
+            <View style={styles.saveButtonRow}>
+              <ActivityIndicator size="small" color="#ffffff" />
+              <Text style={styles.saveButtonText}>Saving...</Text>
+            </View>
+          ) : (
+            <Text style={styles.saveButtonText}>Save Cash Entry</Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -1030,6 +1077,7 @@ type JournalProps = {
   findMatchingLedgers: (q: string) => Ledger[];
   onSave: () => void | Promise<void>;
   onRequestCreateLedger: (ctx: CreateLedgerContext) => void;
+  isSaving: boolean;
 };
 
 function JournalForm(props: JournalProps) {
@@ -1047,6 +1095,7 @@ function JournalForm(props: JournalProps) {
     findMatchingLedgers,
     onSave,
     onRequestCreateLedger,
+    isSaving,
   } = props;
 
   const updateLine = (
@@ -1068,6 +1117,7 @@ function JournalForm(props: JournalProps) {
   };
 
   const addLine = (type: 'dr' | 'cr') => {
+    if (isSaving) return;
     const id = `${type}-${Date.now()}`;
     const newLine: Line = {
       id,
@@ -1083,6 +1133,7 @@ function JournalForm(props: JournalProps) {
   };
 
   const removeLine = (type: 'dr' | 'cr', id: string) => {
+    if (isSaving) return;
     if (type === 'dr') {
       if (debitLines.length === 1) return;
       setDebitLines(debitLines.filter((l) => l.id !== id));
@@ -1107,6 +1158,7 @@ function JournalForm(props: JournalProps) {
         : false;
 
     const shouldShowSuggestions =
+      !isSaving &&
       line.showSuggestions !== false &&
       line.ledgerName.trim().length > 0 &&
       (suggestions.length > 0 || !hasExact);
@@ -1126,6 +1178,7 @@ function JournalForm(props: JournalProps) {
                 showSuggestions: true,
               })
             }
+            editable={!isSaving}
           />
           {shouldShowSuggestions && (
             <View style={styles.suggestionBox}>
@@ -1170,10 +1223,12 @@ function JournalForm(props: JournalProps) {
             keyboardType="numeric"
             value={line.amount}
             onChangeText={(v) => updateLine(type, line.id, { amount: v })}
+            editable={!isSaving}
           />
           <TouchableOpacity
             style={styles.removeLineBtn}
             onPress={() => removeLine(type, line.id)}
+            disabled={isSaving}
           >
             <Text style={styles.removeLineText}>×</Text>
           </TouchableOpacity>
@@ -1222,6 +1277,7 @@ function JournalForm(props: JournalProps) {
       <TouchableOpacity
         activeOpacity={0.8}
         onPress={() => setShowDatePicker(true)}
+        disabled={isSaving}
       >
         <TextInput
           style={styles.input}
@@ -1242,8 +1298,9 @@ function JournalForm(props: JournalProps) {
       <Text style={[styles.subTitle, { marginTop: 10 }]}>Debit</Text>
       {debitLines.map((line, index) => renderLine('dr', line, index))}
       <TouchableOpacity
-        style={styles.addLineButton}
+        style={[styles.addLineButton, isSaving && styles.disabledChip]}
         onPress={() => addLine('dr')}
+        disabled={isSaving}
       >
         <Text style={styles.addLineText}>+ Add Debit Line</Text>
       </TouchableOpacity>
@@ -1251,8 +1308,9 @@ function JournalForm(props: JournalProps) {
       <Text style={[styles.subTitle, { marginTop: 16 }]}>Credit</Text>
       {creditLines.map((line, index) => renderLine('cr', line, index))}
       <TouchableOpacity
-        style={styles.addLineButton}
+        style={[styles.addLineButton, isSaving && styles.disabledChip]}
         onPress={() => addLine('cr')}
+        disabled={isSaving}
       >
         <Text style={styles.addLineText}>+ Add Credit Line</Text>
       </TouchableOpacity>
@@ -1281,10 +1339,23 @@ function JournalForm(props: JournalProps) {
         multiline
         value={narration}
         onChangeText={setNarration}
+        editable={!isSaving}
       />
 
-      <TouchableOpacity style={styles.saveButton} onPress={() => void onSave()}>
-        <Text style={styles.saveButtonText}>Save Journal Entry</Text>
+      <TouchableOpacity
+        style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+        onPress={() => void onSave()}
+        disabled={isSaving}
+        activeOpacity={0.85}
+      >
+        {isSaving ? (
+          <View style={styles.saveButtonRow}>
+            <ActivityIndicator size="small" color="#ffffff" />
+            <Text style={styles.saveButtonText}>Saving...</Text>
+          </View>
+        ) : (
+          <Text style={styles.saveButtonText}>Save Journal Entry</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -1326,6 +1397,9 @@ const styles = StyleSheet.create({
   modeChipTextSelected: {
     color: COLORS.lightBg,
     fontWeight: '600',
+  },
+  disabledChip: {
+    opacity: 0.55,
   },
 
   // generic card (journal)
@@ -1475,10 +1549,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000000',
   },
+  saveButtonDisabled: {
+    opacity: 0.65,
+  },
   saveButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.lightBg,
+  },
+  saveButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
 
   journalLine: {
