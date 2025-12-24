@@ -461,7 +461,7 @@ export default function SettingsScreen() {
       </View>
 
       <Text style={styles.infoText}>
-        {`This app is designed and developed by Bikash.\nIt is currently in an early development version.\nLedger helps you manage your personal and professional money, and automatically creates basic accounting books from your daily entries.`}
+        {`This app is designed and developed  and developed by Bikash.\nIt is currently on pre-release version.\nMobiLedger helps you manage your personal and professional transactions, and automatically creates basic accounting books from your daily entries.`}
       </Text>
     </View>
   );
