@@ -47,7 +47,7 @@ const UI_TEXT: Record<
   }
 > = {
   en: {
-    appName: 'Budget Ledger',
+    appName: 'MobiLedger',
     tagline: 'Simple double-entry ledger for mobile.',
     addEntry: '＋ Add Entry',
     viewReports: 'View Reports',
@@ -66,7 +66,7 @@ const UI_TEXT: Record<
     quickReportsText: 'Trial balance and accounting summaries',
   },
   ja: {
-    appName: 'Budget Ledger',
+    appName: 'MobiLedger',
     tagline: 'モバイル向けのシンプルな複式簿記アプリ。',
     addEntry: '＋ 仕訳を追加',
     viewReports: 'レポートを見る',
@@ -94,7 +94,7 @@ const ONBOARDING_SLIDES = [
   {
     key: 'welcome',
     title: 'Welcome to Ledger',
-    body: 'Track your personal and business money in one simple app.',
+    body: 'Track your personal and business Transactions in one simple app.',
   },
   {
     key: 'entries',
@@ -109,7 +109,7 @@ const ONBOARDING_SLIDES = [
   {
     key: 'cloud',
     title: 'Cloud Ready',
-    body: 'Your entries are stored per account. Login from any device to see your data.',
+    body: 'Your entries are stored on your accountso you can Login from any device to see your data.',
   },
   {
     key: 'loginRequired',

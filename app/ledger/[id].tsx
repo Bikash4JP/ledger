@@ -526,7 +526,7 @@ export default function LedgerDetailScreen() {
             </style>
           </head>
           <body>
-            <div class="app-name">Budget Ledger</div>
+            <div class="app-name">MobiLedger</div>
             <div class="stmt-title">LEDGER STATEMENT</div>
             <div class="ledger-title">${ledger.name}</div>
             <div class="ledger-meta">${ledger.groupName} · ${ledger.nature}</div>
@@ -611,7 +611,7 @@ export default function LedgerDetailScreen() {
       >
         {/* Printed-style header */}
         <View style={styles.printHeaderCard}>
-          <Text style={styles.appNameText}>Budget Ledger</Text>
+          <Text style={styles.appNameText}>MobiLedger</Text>
           <Text style={styles.statementTitle}>LEDGER STATEMENT</Text>
 
           <TouchableOpacity onPress={handleOpenMaster} activeOpacity={0.7}>
