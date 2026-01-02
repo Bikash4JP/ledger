@@ -1,15 +1,23 @@
 // app/ledger/[id].tsx
-import React, { useMemo, useState } from 'react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Alert,
+  Platform,
   ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 import { useData } from '../../src/context/AppDataContext';
 import type { Ledger } from '../../src/models/ledger';
@@ -21,28 +29,83 @@ const COLORS = {
   lightBg: '#ffffff',
   accent: '#2e9ff5',
   muted: '#777777',
-  border: '#e0e0e0',
+  border: '#d0d0d0',
+  danger: '#d32f2f',
 };
+
+const OPENING_LEDGER_LABEL = 'Opening Balance Adjustment';
 
 type LedgerLine = {
   id: string;
-  date: string;
+  date: string; // YYYY-MM-DD or '' (blank)
   particular: string;
   remarks: string;
   debit: number;
   credit: number;
+  balance: number; // running balance (Dr +, Cr -)
+  isSyntheticOpening?: boolean; // only for the generated Opening row (B/F)
 };
 
-function formatAmount(value: number): string {
-  return `¥${value.toLocaleString(undefined, {
+type BaseLine = Omit<LedgerLine, 'balance'> & {
+  isOpeningTx?: boolean; // real tx where other ledger is Opening Balance Adjustment
+};
+
+/**
+ * 1000       -> "1,000"
+ * 1000.5     -> "1,000.50"
+ * 5646.36    -> "5,646.36"
+ * 0 / NaN    -> "0"
+ */
+function formatNumberWithOptionalDecimals(value: number): string {
+  const n = Number(value) || 0;
+  const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+
+  if (isInt) {
+    return Math.round(n).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+  }
+
+  return n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
-  })}`;
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatAmount(value: number): string {
+  if (!value) return '¥0';
+  return `¥${formatNumberWithOptionalDecimals(Math.abs(value))}`;
+}
+
+// Balance display helper: 1,000 Dr / 500 Cr / 0
+function formatBalance(value: number): string {
+  if (value === 0) return '0';
+  const side = value > 0 ? 'Dr' : 'Cr';
+  return `${formatNumberWithOptionalDecimals(Math.abs(value))} ${side}`;
+}
+
+// Small helper: YYYY-MM-DD string → Date (fallback = today)
+function parseDateString(value: string): Date {
+  if (!value) return new Date();
+  const [y, m, d] = value.split('-').map((v) => parseInt(v, 10));
+  if (!y || !m || !d) return new Date();
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return new Date();
+  return dt;
+}
+
+// Helper: Date → YYYY-MM-DD
+function formatDateToInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export default function LedgerDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
-  const { ledgers, transactions } = useData();
+  const { ledgers, transactions, updateLedger, deleteLedger } = useData();
 
   const ledger = useMemo(
     () => ledgers.find((l: Ledger) => l.id === id),
@@ -52,7 +115,34 @@ export default function LedgerDetailScreen() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const lines: LedgerLine[] = useMemo(() => {
+  // Calendar state
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerTarget, setDatePickerTarget] = useState<'from' | 'to'>(
+    'from',
+  );
+  const [pickerDate, setPickerDate] = useState<Date>(new Date());
+
+  // ---------- Ledger master modal state ----------
+  const [showMaster, setShowMaster] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editNature, setEditNature] = useState<Ledger['nature']>('Asset');
+  const [editIsParty, setEditIsParty] = useState<boolean>(false);
+  const [saving, setSaving] = useState(false);
+
+  const normalizeDate = (value: string): string => value.substring(0, 10);
+
+  useEffect(() => {
+    if (ledger) {
+      setEditName(ledger.name);
+      setEditGroupName(ledger.groupName);
+      setEditNature(ledger.nature);
+      setEditIsParty(!!ledger.isParty);
+    }
+  }, [ledger]);
+
+  // Base mapped lines (no running balance yet)
+  const baseLines: BaseLine[] = useMemo(() => {
     if (!ledger) return [];
 
     const ledgerTx = transactions.filter(
@@ -60,49 +150,124 @@ export default function LedgerDetailScreen() {
         t.debitLedgerId === ledger.id || t.creditLedgerId === ledger.id,
     );
 
-    const mapLine = (t: Transaction): LedgerLine => {
+    const mapped = ledgerTx.map((t: Transaction) => {
       const isDebit = t.debitLedgerId === ledger.id;
       const otherLedgerId = isDebit ? t.creditLedgerId : t.debitLedgerId;
       const otherLedger =
         ledgers.find((l: Ledger) => l.id === otherLedgerId) ?? null;
 
+      const otherName = otherLedger ? otherLedger.name : otherLedgerId;
+      const isOpeningTx =
+        (otherLedger?.name || '')
+          .toLowerCase()
+          .includes('opening balance') ||
+        otherName.toLowerCase() === OPENING_LEDGER_LABEL.toLowerCase();
+
       return {
         id: t.id,
-        date: t.date,
-        particular: otherLedger ? otherLedger.name : otherLedgerId,
+        date: normalizeDate(t.date),
+        particular: otherName,
         remarks: t.narration || '',
         debit: isDebit ? t.amount : 0,
         credit: !isDebit ? t.amount : 0,
+        isOpeningTx,
       };
-    };
+    });
 
-    const mapped: LedgerLine[] = ledgerTx.map(mapLine);
+    return mapped;
+  }, [ledger, ledgers, transactions]);
 
-    // date filter (string compare works if YYYY-MM-DD)
-    const filtered = mapped.filter((line) => {
+  // Opening balance brought-forward (only when From date is set)
+  const openingBalance = useMemo(() => {
+    if (!fromDate) return 0;
+    return baseLines
+      .filter((l) => l.date && l.date < fromDate)
+      .reduce((sum, l) => sum + (l.debit - l.credit), 0);
+  }, [baseLines, fromDate]);
+
+  // Display lines with:
+  // - Opening Balance row at top (blank date) if openingBalance != 0 and fromDate is set
+  // - If fromDate is NOT set, then any real "Opening Balance Adjustment" tx lines are shown at top with blank date
+  // - Running balance respects the displayed order
+  const lines: LedgerLine[] = useMemo(() => {
+    if (!ledger) return [];
+
+    // Period filtering
+    const period = baseLines.filter((line) => {
       if (fromDate && line.date < fromDate) return false;
       if (toDate && line.date > toDate) return false;
       return true;
     });
 
-    // sort by date ascending, then id
-    filtered.sort((a, b) => {
+    // Sort helper (stable-ish by date then id)
+    const sortByDateThenId = (a: BaseLine, b: BaseLine) => {
       if (a.date === b.date) return a.id.localeCompare(b.id);
       return a.date < b.date ? -1 : 1;
+    };
+
+    // If no "fromDate" then we want Opening Balance Adjustment tx lines on top (date blank)
+    if (!fromDate) {
+      const openingTx = period.filter((p) => !!p.isOpeningTx).sort((a, b) => {
+        return a.id.localeCompare(b.id);
+      });
+      const rest = period.filter((p) => !p.isOpeningTx).sort(sortByDateThenId);
+
+      const ordered: BaseLine[] = [
+        ...openingTx.map((l) => ({ ...l, date: '' })), // blank date for opening lines
+        ...rest,
+      ];
+
+      let running = 0;
+      return ordered.map((line) => {
+        running += line.debit - line.credit;
+        return { ...line, balance: running };
+      });
+    }
+
+    // With "fromDate", keep chronological order for period lines
+    const ordered = [...period].sort(sortByDateThenId);
+
+    // Build synthetic Opening row at top (blank date) if openingBalance is not zero
+    const openingRow: LedgerLine | null =
+      openingBalance !== 0
+        ? {
+            id: 'opening-balance-bf',
+            date: '', // blank date
+            particular: OPENING_LEDGER_LABEL,
+            remarks: '',
+            debit: openingBalance > 0 ? openingBalance : 0,
+            credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+            balance: openingBalance,
+            isSyntheticOpening: true,
+          }
+        : null;
+
+    let running = openingBalance;
+    const withBalance: LedgerLine[] = ordered.map((line) => {
+      running += line.debit - line.credit;
+      return { ...line, balance: running };
     });
 
-    return filtered;
-  }, [ledger, ledgers, transactions, fromDate, toDate]);
+    return openingRow ? [openingRow, ...withBalance] : withBalance;
+  }, [ledger, baseLines, fromDate, toDate, openingBalance]);
 
+  // Totals should not include the synthetic Opening (B/F) row
   const totals = useMemo(() => {
     return lines.reduce(
       (acc, line) => {
+        if (line.isSyntheticOpening) return acc;
         acc.debit += line.debit;
         acc.credit += line.credit;
         return acc;
       },
       { debit: 0, credit: 0 },
     );
+  }, [lines]);
+
+  // Closing balance should be the last running balance (includes opening if present)
+  const closingBalanceValue = useMemo(() => {
+    if (lines.length === 0) return 0;
+    return lines[lines.length - 1].balance || 0;
   }, [lines]);
 
   if (!ledger) {
@@ -122,6 +287,321 @@ export default function LedgerDetailScreen() {
     );
   }
 
+  const handleOpenMaster = () => {
+    setShowMaster(true);
+  };
+
+  const handleSaveMaster = async () => {
+    if (!ledger) return;
+    const name = editName.trim();
+    const groupName = editGroupName.trim();
+
+    if (!name) {
+      Alert.alert('Validation', 'Please enter ledger name.');
+      return;
+    }
+    if (!groupName) {
+      Alert.alert('Validation', 'Please enter sub-category / group name.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await updateLedger(ledger.id, {
+        name,
+        groupName,
+        nature: editNature,
+        isParty: editIsParty,
+      });
+
+      Alert.alert('Saved', 'Ledger master updated successfully.');
+      setShowMaster(false);
+    } catch (err: any) {
+      console.error('[LedgerDetail] update failed', err);
+      Alert.alert(
+        'Error',
+        err?.message || 'Failed to update ledger. Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteLedger = () => {
+    if (!ledger) return;
+
+    Alert.alert(
+      'Delete Ledger?',
+      'This will delete the ledger master. You can only delete if it has no entries.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteLedger(ledger.id);
+              Alert.alert('Deleted', 'Ledger deleted.', [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace('/(tabs)/ledgers'),
+                },
+              ]);
+            } catch (err: any) {
+              console.error('[LedgerDetail] delete failed', err);
+              Alert.alert(
+                'Cannot delete',
+                err?.message ||
+                  'This ledger has entries or could not be deleted.',
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const renderNatureChip = (value: Ledger['nature'], label: string) => {
+    const selected = editNature === value;
+    return (
+      <TouchableOpacity
+        key={value}
+        style={[styles.natureChip, selected && styles.natureChipSelected]}
+        onPress={() => setEditNature(value)}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[
+            styles.natureChipText,
+            selected && styles.natureChipTextSelected,
+          ]}
+        >
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const closingBalanceText =
+    closingBalanceValue === 0
+      ? '0'
+      : `${formatAmount(Math.abs(closingBalanceValue))} ${
+          closingBalanceValue > 0 ? 'Dr' : 'Cr'
+        }`;
+
+  // --------- Date picker helpers ----------
+  const openDatePicker = (target: 'from' | 'to') => {
+    setDatePickerTarget(target);
+    const base =
+      target === 'from'
+        ? parseDateString(fromDate)
+        : parseDateString(toDate);
+    setPickerDate(base);
+    setShowDatePicker(true);
+  };
+
+  const handleDateChange = (event: any, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+
+    if (!date || event?.type !== 'set') {
+      return;
+    }
+
+    const value = formatDateToInput(date);
+    if (datePickerTarget === 'from') {
+      setFromDate(value);
+    } else {
+      setToDate(value);
+    }
+  };
+
+  // --------- PDF Export ----------
+  const handleExportPdf = async () => {
+    try {
+      if (lines.length === 0) {
+        Alert.alert('Export', 'No entries for this period to export.');
+        return;
+      }
+
+      const safeName = ledger.name.replace(/[^\w\-]+/g, '_') || 'ledger';
+      const fromLabel = fromDate || 'start';
+      const toLabel = toDate || 'today';
+      const fileName = `${safeName}_${fromLabel}_${toLabel}.pdf`;
+
+      const rowsHtml = lines
+        .map(
+          (line) => `
+        <tr>
+          <td>${line.date || ''}</td>
+          <td>
+            <strong style="font-weight:700;color:#000;">${line.particular}</strong><br/>
+            ${
+              line.remarks
+                ? `<span style="font-size:10px;color:#000;font-style:italic;">${line.remarks}</span>`
+                : ''
+            }
+          </td>
+          <td style="text-align:right;">
+            ${
+              line.debit
+                ? formatNumberWithOptionalDecimals(line.debit)
+                : ''
+            }
+          </td>
+          <td style="text-align:right;">
+            ${
+              line.credit
+                ? formatNumberWithOptionalDecimals(line.credit)
+                : ''
+            }
+          </td>
+          <td style="text-align:right;">
+            ${formatBalance(line.balance)}
+          </td>
+        </tr>
+      `,
+        )
+        .join('\n');
+
+      const html = `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Ledger Statement</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                font-size: 11px;
+                color: #000;
+                padding: 16px;
+              }
+              h1, h2, h3 { margin: 0; padding: 0; color:#000; }
+              .app-name { font-size: 10px; color: #000; text-align:center; }
+              .stmt-title { font-size: 13px; font-weight: 700; text-align:center; margin-top: 2px; letter-spacing: 1px; color:#000; }
+              .ledger-title { font-size: 18px; font-weight: 700; text-align:center; margin-top: 8px; color:#000; }
+              .ledger-meta { font-size: 11px; text-align:center; color:#000; margin-top: 2px; }
+              .period { font-size: 10px; text-align:center; margin-top: 4px; color:#000; }
+              .closing { font-size: 10px; text-align:center; margin-top: 2px; color:#000; }
+
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 12px;
+                color:#000;
+              }
+
+              /* Header row: 2px top/bottom solid */
+              thead tr {
+                border-top: 1.5px solid #000;
+                border-bottom: 1.5px solid #000;
+              }
+
+              th, td {
+                padding: 4px 3px;
+                color:#000;
+              }
+
+              /* Data rows: border opacity 0.5 */
+              tbody td {
+                border-bottom: 1px solid rgba(0,0,0,0.5);
+              }
+
+              th {
+                font-size: 10px;
+                text-align: left;
+                font-weight:700;
+              }
+              .amount { text-align: right; }
+
+              /* Totals row: 2px top/bottom */
+              tfoot td {
+                border-top: 1px solid #000;
+                border-bottom: 1px solid #000;
+                font-weight: 700;
+                background: #fff;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="app-name">MobiLedger</div>
+            <div class="stmt-title">LEDGER STATEMENT</div>
+            <div class="ledger-title">${ledger.name}</div>
+            <div class="ledger-meta">${ledger.groupName} · ${ledger.nature}</div>
+            <div class="period">
+              Period: ${fromDate || 'Beginning'} ～ ${toDate || 'Today'}
+            </div>
+            <div class="closing">
+              Closing balance: ${closingBalanceText}
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:16%;">Date</th>
+                  <th style="width:40%;">Particulars</th>
+                  <th style="width:14%; text-align:right;">Dr</th>
+                  <th style="width:14%; text-align:right;">Cr</th>
+                  <th style="width:16%; text-align:right;">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td></td>
+                  <td>TOTAL</td>
+                  <td class="amount">
+                    ${formatNumberWithOptionalDecimals(totals.debit)}
+                  </td>
+                  <td class="amount">
+                    ${formatNumberWithOptionalDecimals(totals.credit)}
+                  </td>
+                  <td class="amount">
+                    ${formatBalance(closingBalanceValue)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+
+      let targetUri = uri;
+      const dir = FileSystem.cacheDirectory;
+      if (dir) {
+        const newPath = dir + fileName;
+        await FileSystem.moveAsync({ from: uri, to: newPath });
+        targetUri = newPath;
+      }
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert(
+          'Export',
+          `PDF created at: ${targetUri}\n(Sharing is not available on this device)`,
+        );
+        return;
+      }
+
+      await Sharing.shareAsync(targetUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Share ledger statement PDF',
+      });
+    } catch (err) {
+      console.error('[LedgerDetail] PDF export failed', err);
+      Alert.alert(
+        'Error',
+        'Failed to export ledger as PDF. Please try again.',
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: ledger.name }} />
@@ -129,50 +609,66 @@ export default function LedgerDetailScreen() {
         style={styles.container}
         contentContainerStyle={styles.content}
       >
-        {/* Header summary */}
-        <View style={styles.summaryCard}>
-          <Text style={styles.ledgerName}>{ledger.name}</Text>
-          <Text style={styles.ledgerGroup}>
+        {/* Printed-style header */}
+        <View style={styles.printHeaderCard}>
+          <Text style={styles.appNameText}>MobiLedger</Text>
+          <Text style={styles.statementTitle}>LEDGER STATEMENT</Text>
+
+          <TouchableOpacity onPress={handleOpenMaster} activeOpacity={0.7}>
+            <Text style={styles.ledgerTitleText}>{ledger.name}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.ledgerMetaText}>
             {ledger.groupName} · {ledger.nature}
           </Text>
 
-          <View style={styles.balanceRow}>
-            <View>
-              <Text style={styles.balanceLabel}>Closing Balance</Text>
-              <Text style={styles.balanceValue}>
-                {/* Closing balance approx = total Dr - total Cr for this ledger */}
-                {(() => {
-                  const diff = totals.debit - totals.credit;
-                  if (diff === 0) return '0.00';
-                  const type = diff > 0 ? 'Dr' : 'Cr';
-                  return `${formatAmount(Math.abs(diff))} ${type}`;
-                })()}
+          <View style={styles.headerBottomRow}>
+            <Text style={styles.headerSmallLabel}>
+              Closing balance:{' '}
+              <Text style={styles.headerBalanceText}>
+                {closingBalanceText}
               </Text>
-            </View>
+            </Text>
           </View>
         </View>
 
-        {/* Period filters */}
+        {/* Period filters with calendar pickers */}
         <View style={styles.filterCard}>
           <Text style={styles.filterTitle}>Period</Text>
           <View style={styles.filterRow}>
             <View style={styles.filterCol}>
-              <Text style={styles.filterLabel}>From (YYYY-MM-DD)</Text>
-              <TextInput
-                style={styles.filterInput}
-                value={fromDate}
-                onChangeText={setFromDate}
-                placeholder="2025-01-01"
-              />
+              <Text style={styles.filterLabel}>From</Text>
+              <TouchableOpacity
+                style={styles.filterInputButton}
+                onPress={() => openDatePicker('from')}
+              >
+                <Text
+                  style={
+                    fromDate
+                      ? styles.filterInputText
+                      : styles.filterInputPlaceholder
+                  }
+                >
+                  {fromDate || 'Select date'}
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.filterCol}>
-              <Text style={styles.filterLabel}>To (YYYY-MM-DD)</Text>
-              <TextInput
-                style={styles.filterInput}
-                value={toDate}
-                onChangeText={setToDate}
-                placeholder="2025-12-31"
-              />
+              <Text style={styles.filterLabel}>To</Text>
+              <TouchableOpacity
+                style={styles.filterInputButton}
+                onPress={() => openDatePicker('to')}
+              >
+                <Text
+                  style={
+                    toDate
+                      ? styles.filterInputText
+                      : styles.filterInputPlaceholder
+                  }
+                >
+                  {toDate || 'Select date'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -191,9 +687,7 @@ export default function LedgerDetailScreen() {
               <TouchableOpacity
                 style={styles.exportButton}
                 onPress={() => {
-                  // TODO: Hook up to real PDF export later
-                  // For now just a placeholder.
-                  console.log('Export ledger as PDF (future)');
+                  void handleExportPdf();
                 }}
               >
                 <Text style={styles.exportButtonText}>Export PDF</Text>
@@ -202,18 +696,44 @@ export default function LedgerDetailScreen() {
           </View>
         </View>
 
-        {/* Ledger table */}
+        {/* Ledger table with double top border like Excel */}
         <View style={styles.tableCard}>
+          <View style={styles.tableTopBorders}>
+            <View style={styles.tableTopLine} />
+            <View style={[styles.tableTopLine, { marginTop: 2 }]} />
+          </View>
+
           <View style={styles.tableHeader}>
             <Text style={[styles.colDate, styles.tableHeaderText]}>Date</Text>
             <Text style={[styles.colParticular, styles.tableHeaderText]}>
               Particulars
             </Text>
-            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>
+            <Text
+              style={[
+                styles.colAmount,
+                styles.tableHeaderText,
+                styles.right,
+              ]}
+            >
               Dr
             </Text>
-            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>
+            <Text
+              style={[
+                styles.colAmount,
+                styles.tableHeaderText,
+                styles.right,
+              ]}
+            >
               Cr
+            </Text>
+            <Text
+              style={[
+                styles.colBalance,
+                styles.tableHeaderText,
+                styles.right,
+              ]}
+            >
+              Balance
             </Text>
           </View>
 
@@ -226,11 +746,13 @@ export default function LedgerDetailScreen() {
               {lines.map((line) => (
                 <View key={line.id} style={styles.tableRow}>
                   <View style={styles.colDate}>
-                    <Text style={styles.dateText}>{line.date}</Text>
+                    <Text style={styles.dateText}>{line.date || ''}</Text>
                   </View>
 
                   <View style={styles.particularCell}>
-                    <Text style={styles.particularText}>{line.particular}</Text>
+                    <Text style={styles.particularText}>
+                      {line.particular}
+                    </Text>
                     {line.remarks ? (
                       <Text style={styles.remarksText}>{line.remarks}</Text>
                     ) : null}
@@ -239,19 +761,20 @@ export default function LedgerDetailScreen() {
                   <View style={styles.amountCell}>
                     <Text style={[styles.amountText, styles.right]}>
                       {line.debit
-                        ? line.debit.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                          })
+                        ? formatNumberWithOptionalDecimals(line.debit)
                         : ''}
                     </Text>
                   </View>
                   <View style={styles.amountCell}>
                     <Text style={[styles.amountText, styles.right]}>
                       {line.credit
-                        ? line.credit.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                          })
+                        ? formatNumberWithOptionalDecimals(line.credit)
                         : ''}
+                    </Text>
+                  </View>
+                  <View style={styles.balanceCell}>
+                    <Text style={[styles.amountText, styles.right]}>
+                      {formatBalance(line.balance)}
                     </Text>
                   </View>
                 </View>
@@ -265,17 +788,36 @@ export default function LedgerDetailScreen() {
                   <Text style={styles.totalLabel}>TOTAL</Text>
                 </View>
                 <View style={styles.amountCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
-                    {totals.debit.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                  <Text
+                    style={[
+                      styles.amountText,
+                      styles.totalAmount,
+                      styles.right,
+                    ]}
+                  >
+                    {formatNumberWithOptionalDecimals(totals.debit)}
                   </Text>
                 </View>
                 <View style={styles.amountCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
-                    {totals.credit.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                  <Text
+                    style={[
+                      styles.amountText,
+                      styles.totalAmount,
+                      styles.right,
+                    ]}
+                  >
+                    {formatNumberWithOptionalDecimals(totals.credit)}
+                  </Text>
+                </View>
+                <View style={styles.balanceCell}>
+                  <Text
+                    style={[
+                      styles.amountText,
+                      styles.totalAmount,
+                      styles.right,
+                    ]}
+                  >
+                    {formatBalance(closingBalanceValue)}
                   </Text>
                 </View>
               </View>
@@ -283,6 +825,102 @@ export default function LedgerDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={pickerDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          onChange={handleDateChange}
+        />
+      )}
+
+      {/* Ledger Master overlay */}
+      {showMaster && (
+        <View style={styles.overlay}>
+          <View style={styles.masterCard}>
+            <Text style={styles.masterTitle}>Ledger Master</Text>
+            <Text style={styles.masterHint}>
+              Edit name, category and sub-category for this ledger.
+            </Text>
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>
+              Ledger Name
+            </Text>
+            <TextInput
+              style={styles.masterInput}
+              value={editName}
+              onChangeText={setEditName}
+            />
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>
+              Category (Nature)
+            </Text>
+            <View style={styles.natureRow}>
+              {renderNatureChip('Asset', 'Asset')}
+              {renderNatureChip('Liability', 'Liability')}
+              {renderNatureChip('Income', 'Income')}
+              {renderNatureChip('Expense', 'Expense')}
+            </View>
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>
+              Sub-category / Group
+            </Text>
+            <TextInput
+              style={styles.masterInput}
+              value={editGroupName}
+              onChangeText={setEditGroupName}
+              placeholder="e.g. Sundry Creditors, Bank A/c, Rent Expenses"
+            />
+
+            <View style={styles.partyRow}>
+              <Text style={styles.masterLabel}>Treat as Party A/c</Text>
+              <Switch value={editIsParty} onValueChange={setEditIsParty} />
+            </View>
+
+            <View style={styles.masterButtonsRow}>
+              <TouchableOpacity
+                style={[styles.masterButton, styles.masterDeleteButton]}
+                onPress={handleDeleteLedger}
+              >
+                <Text style={styles.masterDeleteText}>Delete</Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.masterButton, styles.masterCancelButton]}
+                  onPress={() => setShowMaster(false)}
+                >
+                  <Text style={styles.masterCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.masterButton,
+                    styles.masterSaveButton,
+                    saving && { opacity: 0.6 },
+                  ]}
+                  onPress={() => {
+                    if (!saving) {
+                      void handleSaveMaster();
+                    }
+                  }}
+                >
+                  <Text style={styles.masterSaveText}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <Text style={styles.masterInfoNote}>
+              Opening balance ka logic thoda sensitive hai (existing entries ke
+              saath adjust karna hota hai), isliye abhi yahan se direct change
+              nahi kar rahe. Opening balance ke liye abhi bhi journal entry se
+              adjust kar sakte ho.
+            </Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -290,7 +928,7 @@ export default function LedgerDetailScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.dark, // black outer like tab bar
+    backgroundColor: COLORS.dark,
   },
   container: {
     flex: 1,
@@ -324,40 +962,57 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  summaryCard: {
+  // Header styled like printed ledger
+  printHeaderCard: {
     borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 12,
-    backgroundColor: '#fdf7fb',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
     marginBottom: 12,
   },
-  ledgerName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.dark,
+  appNameText: {
+    fontSize: 11,
+    color: COLORS.muted,
+    textAlign: 'center',
   },
-  ledgerGroup: {
+  statementTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.dark,
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 1.2,
+  },
+  ledgerTitleText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.dark,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  ledgerMetaText: {
     fontSize: 12,
     color: COLORS.muted,
+    textAlign: 'center',
     marginTop: 2,
   },
-  balanceRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  headerBottomRow: {
+    marginTop: 8,
+    alignItems: 'center',
   },
-  balanceLabel: {
+  headerSmallLabel: {
     fontSize: 11,
     color: COLORS.muted,
   },
-  balanceValue: {
-    fontSize: 15,
+  headerBalanceText: {
+    fontSize: 12,
     fontWeight: '700',
     color: COLORS.primary,
-    marginTop: 2,
   },
 
+  // Filter card + calendar
   filterCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -384,15 +1039,21 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginBottom: 3,
   },
-  filterInput: {
+  filterInputButton: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    backgroundColor: COLORS.lightBg,
+  },
+  filterInputText: {
     fontSize: 12,
     color: COLORS.dark,
-    backgroundColor: COLORS.lightBg,
+  },
+  filterInputPlaceholder: {
+    fontSize: 12,
+    color: '#aaaaaa',
   },
   filterActionsRow: {
     flexDirection: 'row',
@@ -432,15 +1093,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.lightBg,
-    padding: 8,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 8,
   },
+  tableTopBorders: {
+    marginBottom: 6,
+  },
+  tableTopLine: {
+    height: 1,
+    backgroundColor: '#000000',
+    width: '100%',
+  },
+
+  // ✅ Header row: 2px solid black top & bottom
   tableHeader: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderTopWidth: 2,
+    borderTopColor: '#000000',
+    borderBottomWidth: 2,
+    borderBottomColor: '#000000',
     paddingBottom: 4,
     marginBottom: 4,
   },
+
   colDate: {
     flex: 1.1,
   },
@@ -450,17 +1126,23 @@ const styles = StyleSheet.create({
   colAmount: {
     flex: 1,
   },
+  colBalance: {
+    flex: 1.1,
+  },
   tableHeaderText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: COLORS.dark,
   },
+
+  // ✅ Data borders: opacity 0.5
   tableRow: {
     flexDirection: 'row',
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
+    borderBottomColor: 'rgba(0,0,0,0.5)',
   },
+
   dateText: {
     fontSize: 11,
     color: COLORS.muted,
@@ -481,6 +1163,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  balanceCell: {
+    flex: 1.1,
+    justifyContent: 'center',
+  },
   amountText: {
     fontSize: 12,
     color: COLORS.dark,
@@ -488,15 +1174,23 @@ const styles = StyleSheet.create({
   right: {
     textAlign: 'right',
   },
+
+  // (keep component but hide it to avoid double lines)
   tableFooterLine: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginTop: 4,
-    marginBottom: 4,
+    height: 0,
+    marginTop: 0,
+    marginBottom: 0,
   },
+
+  // ✅ Total row: 2px top & bottom
   totalRow: {
     backgroundColor: '#fdf7fb',
+    borderTopWidth: 1,
+    borderTopColor: '#000000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
   },
+
   totalLabel: {
     fontSize: 12,
     fontWeight: '700',
@@ -513,6 +1207,124 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
+    color: COLORS.muted,
+  },
+
+  // ---------- Master modal ----------
+  overlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  masterCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 14,
+  },
+  masterTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.dark,
+  },
+  masterHint: {
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 2,
+  },
+  masterLabel: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginBottom: 4,
+  },
+  masterInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    fontSize: 13,
+    color: COLORS.dark,
+    backgroundColor: COLORS.lightBg,
+  },
+  natureRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  natureChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  natureChipSelected: {
+    backgroundColor: COLORS.accent,
+    borderColor: COLORS.accent,
+  },
+  natureChipText: {
+    fontSize: 12,
+    color: COLORS.dark,
+  },
+  natureChipTextSelected: {
+    color: COLORS.lightBg,
+    fontWeight: '600',
+  },
+  partyRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  masterButtonsRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  masterButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+  },
+  masterDeleteButton: {
+    borderWidth: 1,
+    borderColor: '#ffe0e0',
+    backgroundColor: '#fff4f4',
+  },
+  masterDeleteText: {
+    fontSize: 13,
+    color: COLORS.danger,
+    fontWeight: '600',
+  },
+  masterCancelButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#ffffff',
+  },
+  masterCancelText: {
+    fontSize: 13,
+    color: COLORS.dark,
+  },
+  masterSaveButton: {
+    backgroundColor: COLORS.primary,
+  },
+  masterSaveText: {
+    fontSize: 13,
+    color: COLORS.lightBg,
+    fontWeight: '600',
+  },
+  masterInfoNote: {
+    marginTop: 10,
+    fontSize: 11,
     color: COLORS.muted,
   },
 });

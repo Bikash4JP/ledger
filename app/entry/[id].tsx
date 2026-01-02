@@ -1,14 +1,14 @@
 // app/entry/[id].tsx
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useData } from '../../src/context/AppDataContext';
 import type { Ledger } from '../../src/models/ledger';
 import type { Transaction } from '../../src/models/transaction';
@@ -26,9 +26,9 @@ const COLORS = {
 export default function EntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { transactions, ledgers, addTransaction } = useData();
+  const { transactions, ledgers, addTransaction, deleteTransaction } = useData();
 
-  const tx = useMemo(
+  const tx: Transaction | undefined = useMemo(
     () => transactions.find((t) => t.id === id),
     [transactions, id],
   );
@@ -60,40 +60,90 @@ export default function EntryDetailScreen() {
         {
           text: 'Reverse',
           style: 'destructive',
-          onPress: () => {
-            const today = new Date();
-            const y = today.getFullYear();
-            const m = String(today.getMonth() + 1).padStart(2, '0');
-            const d = String(today.getDate()).padStart(2, '0');
-            const todayStr = `${y}-${m}-${d}`;
+          onPress: async () => {
+            try {
+              const today = new Date();
+              const y = today.getFullYear();
+              const m = String(today.getMonth() + 1).padStart(2, '0');
+              const d = String(today.getDate()).padStart(2, '0');
+              const todayStr = `${y}-${m}-${d}`;
 
-            addTransaction({
-              date: todayStr,
-              debitLedgerId: tx.creditLedgerId,
-              creditLedgerId: tx.debitLedgerId,
-              amount: tx.amount,
-              voucherType: 'Journal',
-              narration:
-                tx.narration
+              await addTransaction({
+                date: todayStr,
+                debitLedgerId: tx.creditLedgerId,
+                creditLedgerId: tx.debitLedgerId,
+                amount: tx.amount,
+                voucherType: 'Journal',
+                narration: tx.narration
                   ? `Reversal of entry on ${tx.date}: ${tx.narration}`
                   : `Reversal of entry on ${tx.date}`,
-            });
+              });
 
-            Alert.alert(
-              'Reversed',
-              'Reversal entry created. Please pass a new correct entry if needed.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => router.replace('/(tabs)/entries'),
-                },
-              ],
-            );
+              Alert.alert(
+                'Reversed',
+                'Reversal entry created. Please pass a new correct entry if needed.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => router.replace('/(tabs)/entries'),
+                  },
+                ],
+              );
+            } catch (err) {
+              console.error('[EntryDetail] Reverse failed', err);
+              Alert.alert('Error', 'Failed to create reversal entry.');
+            }
           },
         },
       ],
     );
   };
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete this entry?',
+      'This will permanently delete this entry. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteTransaction(tx.id);
+              Alert.alert('Deleted', 'Entry deleted successfully.', [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace('/(tabs)/entries'),
+                },
+              ]);
+            } catch (err) {
+              console.error('[EntryDetail] Delete failed', err);
+              Alert.alert('Error', 'Failed to delete entry. Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const openLedger = (ledger: Ledger | undefined, fallbackId: string) => {
+    if (!ledger) {
+      Alert.alert(
+        'Ledger not found',
+        `Ledger ID: ${fallbackId} not found in current list.`,
+      );
+      return;
+    }
+    router.push({ pathname: '/ledger/[id]', params: { id: ledger.id } });
+  };
+  const normalizeDate = (value: string): string => {
+  if (!value) return value;
+  if (value.length >= 10) return value.slice(0, 10);
+  return value;
+};
+
+
 
   return (
     <>
@@ -106,7 +156,8 @@ export default function EntryDetailScreen() {
           {/* Header */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.dateText}>{tx.date}</Text>
+              <Text style={styles.dateText}>{normalizeDate(tx.date)}</Text>
+
               <Text style={styles.voucherTypeText}>{tx.voucherType}</Text>
             </View>
             <Text style={styles.amountText}>
@@ -123,15 +174,30 @@ export default function EntryDetailScreen() {
             <View style={styles.ledgerRow}>
               <View style={styles.ledgerCol}>
                 <Text style={styles.ledgerLabel}>Debit</Text>
-                <Text style={styles.ledgerName}>
-                  {debitLedger ? debitLedger.name : tx.debitLedgerId}
-                </Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    openLedger(debitLedger, tx.debitLedgerId)
+                  }
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.ledgerName, styles.ledgerLink]}>
+                    {debitLedger ? debitLedger.name : tx.debitLedgerId}
+                  </Text>
+                </TouchableOpacity>
               </View>
+
               <View style={styles.ledgerCol}>
                 <Text style={styles.ledgerLabel}>Credit</Text>
-                <Text style={styles.ledgerName}>
-                  {creditLedger ? creditLedger.name : tx.creditLedgerId}
-                </Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    openLedger(creditLedger, tx.creditLedgerId)
+                  }
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.ledgerName, styles.ledgerLink]}>
+                    {creditLedger ? creditLedger.name : tx.creditLedgerId}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -146,17 +212,25 @@ export default function EntryDetailScreen() {
 
           {/* Info note */}
           <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>No direct editing</Text>
+            <Text style={styles.infoTitle}>Editing</Text>
             <Text style={styles.infoText}>
-              Amounts and ledgers cannot be edited once an entry is saved.
-              If this entry is wrong, reverse it and pass a new correct entry.
+              Amounts and ledgers cannot be edited directly once an entry is
+              saved. If this entry is wrong, you can delete it or reverse it and
+              then pass a new correct entry.
             </Text>
           </View>
 
           {/* Actions */}
           <View style={styles.actionsRow}>
             <TouchableOpacity
-              style={styles.reverseButton}
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={handleDelete}
+            >
+              <Text style={styles.deleteButtonText}>Delete Entry</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.reverseButton]}
               onPress={handleReverse}
             >
               <Text style={styles.reverseButtonText}>Reverse Entry</Text>
@@ -243,6 +317,9 @@ const styles = StyleSheet.create({
     color: COLORS.dark,
     fontWeight: '500',
   },
+  ledgerLink: {
+    textDecorationLine: 'underline',
+  },
   narrationText: {
     fontSize: 13,
     color: COLORS.dark,
@@ -274,16 +351,27 @@ const styles = StyleSheet.create({
     marginTop: 14,
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: 8,
   },
-  reverseButton: {
+  actionButton: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
+  },
+  reverseButton: {
     backgroundColor: COLORS.dark,
   },
   reverseButtonText: {
     fontSize: 13,
     fontWeight: '600',
     color: COLORS.lightBg,
+  },
+  deleteButton: {
+    backgroundColor: '#ffe3e3',
+  },
+  deleteButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.danger,
   },
 });

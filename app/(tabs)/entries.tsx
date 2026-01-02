@@ -1,19 +1,25 @@
-// app/(tabs)/entries.tsx
+import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 
-import type { Transaction } from '../../src/models/transaction';
 import type { Ledger } from '../../src/models/ledger';
+import type { Transaction } from '../../src/models/transaction';
+
+const normalizeDate = (value: string): string => {
+  if (!value) return value;
+  // "2025-12-11T00:00:00.000Z" → "2025-12-11"
+  if (value.length >= 10) return value.slice(0, 10);
+  return value;
+};
 
 const COLORS = {
   primary: '#ac0c79',
@@ -157,7 +163,10 @@ const SYSTEM_LEDGER_JA: Record<string, string> = {
 };
 
 // Helper: get display name based on language
-function getLedgerDisplayName(ledger: Ledger | undefined, lang: Language): string {
+function getLedgerDisplayName(
+  ledger: Ledger | undefined,
+  lang: Language,
+): string {
   if (!ledger) return '';
   if (lang === 'ja') {
     return SYSTEM_LEDGER_JA[ledger.name] ?? ledger.name;
@@ -193,6 +202,8 @@ export default function EntriesScreen() {
 
       return {
         ...t,
+        // yahan date clean karke store karenge
+        date: normalizeDate(t.date),
         // 🔁 Standard ledger → JP, user-created ledger → as is
         debitName: debit
           ? getLedgerDisplayName(debit, lang)
@@ -254,7 +265,11 @@ export default function EntriesScreen() {
   };
 
   const goToAddEntry = () => {
-    router.push({ pathname: '/entry/new' });
+    // Ab default cash-book tab ko open karne ke liye param bhej rahe hain
+    router.push({
+      pathname: '/entry/new',
+      params: { tab: 'cash' },
+    } as any);
   };
 
   const openEntryDetail = (id: string) => {
@@ -270,7 +285,7 @@ export default function EntriesScreen() {
           <Text style={styles.subtitle}>{texts.subtitle}</Text>
         </View>
         <TouchableOpacity style={styles.addButton} onPress={goToAddEntry}>
-          <Text style={styles.addButtonText}>+ Add</Text>
+          <Text style={styles.addButtonText}>+ Add Entry</Text>
         </TouchableOpacity>
       </View>
 
