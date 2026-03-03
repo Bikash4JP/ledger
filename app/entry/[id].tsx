@@ -1,6 +1,6 @@
 // app/entry/[id].tsx
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   Alert,
   ScrollView,
@@ -10,8 +10,10 @@ import {
   View,
 } from 'react-native';
 import { useData } from '../../src/context/AppDataContext';
+import { useSettings } from '../../src/context/SettingsContext';
 import type { Ledger } from '../../src/models/ledger';
 import type { Transaction } from '../../src/models/transaction';
+import { getLedgerLabel } from '../../src/utils/ledgerLabels';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -27,6 +29,10 @@ export default function EntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { transactions, ledgers, addTransaction, deleteTransaction } = useData();
+  
+  // Get language context
+  const { settings } = useSettings();
+  const lang = settings.language;
 
   const tx: Transaction | undefined = useMemo(
     () => transactions.find((t) => t.id === id),
@@ -143,8 +149,6 @@ export default function EntryDetailScreen() {
   return value;
 };
 
-
-
   return (
     <>
       <Stack.Screen options={{ title: 'Entry Details' }} />
@@ -181,7 +185,7 @@ export default function EntryDetailScreen() {
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.ledgerName, styles.ledgerLink]}>
-                    {debitLedger ? debitLedger.name : tx.debitLedgerId}
+                    {debitLedger ? getLedgerLabel(debitLedger, lang) : tx.debitLedgerId}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -195,7 +199,7 @@ export default function EntryDetailScreen() {
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.ledgerName, styles.ledgerLink]}>
-                    {creditLedger ? creditLedger.name : tx.creditLedgerId}
+                    {creditLedger ? getLedgerLabel(creditLedger, lang) : tx.creditLedgerId}
                   </Text>
                 </TouchableOpacity>
               </View>

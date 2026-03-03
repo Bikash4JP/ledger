@@ -1,6 +1,6 @@
 // src/screens/EntriesListScreen.tsx
 import { useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   Alert,
   FlatList,
@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 import { useData } from '../context/AppDataContext';
+import { useSettings } from '../context/SettingsContext';
+import { getLedgerLabelByName } from '../utils/ledgerLabels';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -23,11 +25,17 @@ const COLORS = {
 export default function EntriesListScreen() {
   const router = useRouter();
   const { transactions, ledgers, deleteTransaction } = useData();
+  const { settings } = useSettings();
+  const lang = settings.language;
   const normalizeDate = (value: string): string => value.substring(0, 10);
 
   const rows = useMemo(() => {
-    const getLedgerName = (id: string) =>
-      ledgers.find((l) => l.id === id)?.name ?? id;
+    const getLedgerName = (id: string) => {
+      const found = ledgers.find((l) => l.id === id);
+      if (!found) return id;
+      // Translate the name based on current language
+      return getLedgerLabelByName(found.name, lang);
+    };
 
     return [...transactions]
       .sort((a, b) => {
@@ -36,13 +44,13 @@ export default function EntriesListScreen() {
       })
       .map((t) => ({
         id: t.id,
-        date:normalizeDate(t.date),
+        date: normalizeDate(t.date),
         debitName: getLedgerName(t.debitLedgerId),
         creditName: getLedgerName(t.creditLedgerId),
         amount: t.amount,
         narration: t.narration,
       }));
-  }, [transactions, ledgers]);
+  }, [transactions, ledgers, lang]);
 
   const handleOpenEntry = (id: string) => {
     router.push({ pathname: '/entry/[id]', params: { id } });

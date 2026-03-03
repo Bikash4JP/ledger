@@ -1,5 +1,5 @@
 // ledger/src/context/AppDataContext.tsx
-import React, {
+import {
   createContext,
   useContext,
   useEffect,
@@ -192,13 +192,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       if (!res.ok) {
         console.warn('[Data] update ledger failed', res.status);
-        const body = await res.json().catch(() => null);
+        const body: any = await res.json().catch(() => null);
         const msg =
           body?.error ?? `Failed to update ledger (status ${res.status})`;
         throw new Error(msg);
       }
 
-      const updatedRaw: Ledger = await res.json();
+      const updatedRaw = await res.json() as Ledger;
       const updated = normalizeLedger(updatedRaw);
 
       setLedgers((prev) => prev.map((l) => (l.id === id ? { ...l, ...updated } : l)));
@@ -222,7 +222,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
 
       if (res.status === 400) {
-        const body = await res.json().catch(() => null);
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
         const msg =
           body?.error ??
           'This ledger has entries and cannot be deleted. Delete/reverse entries first.';
@@ -296,7 +296,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (!res.ok && res.status !== 204) {
         let msg = `Delete failed: ${res.status}`;
         try {
-          const body = await res.json();
+          const body = (await res.json()) as { error?: string };
           if (body?.error) msg = body.error;
         } catch {}
         console.warn('[Data] delete entry failed', res.status, msg);
