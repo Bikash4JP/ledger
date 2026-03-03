@@ -1,6 +1,6 @@
 // app/ledger/[id].tsx
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
@@ -82,6 +83,8 @@ const UI_TEXT: Record<Language, any> = {
     notFound: 'Ledger not found.',
     shareTitle: 'Share ledger statement PDF',
     exportEmpty: 'No entries for this period to export.',
+    beginning: 'Beginning',
+    today: 'Today',
   },
   ja: {
     ledger: '元帳',
@@ -126,6 +129,8 @@ const UI_TEXT: Record<Language, any> = {
     notFound: '元帳が見つかりませんでした。',
     shareTitle: '元帳明細PDFを共有',
     exportEmpty: '出力するデータがありません。',
+    beginning: '開始',
+    today: '本日',
   }
 };
 
@@ -174,6 +179,12 @@ function formatDateToInput(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function formatBalance(value: number, t: any): string {
+  if (value === 0) return '0';
+  const side = value > 0 ? t.dr : t.cr;
+  return `${formatNumberWithOptionalDecimals(Math.abs(value))} ${side}`;
+}
+
 export default function LedgerDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -189,9 +200,11 @@ export default function LedgerDetailScreen() {
 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerTarget, setDatePickerTarget] = useState<'from' | 'to'>('from');
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
+
   const [showMaster, setShowMaster] = useState(false);
   const [editName, setEditName] = useState('');
   const [editGroupName, setEditGroupName] = useState('');
@@ -257,13 +270,19 @@ export default function LedgerDetailScreen() {
 
   const baseLines: BaseLine[] = useMemo(() => {
     if (!ledger || isGroupView) return [];
-    const ledgerTx = transactions.filter(t => t.debitLedgerId === ledger.id || t.creditLedgerId === ledger.id);
+    const ledgerTx = transactions.filter(
+      (trans: Transaction) => trans.debitLedgerId === ledger.id || trans.creditLedgerId === ledger.id,
+    );
 
     return ledgerTx.map((trans: Transaction) => {
       const isDebit = trans.debitLedgerId === ledger.id;
       const otherLedgerId = isDebit ? trans.creditLedgerId : trans.debitLedgerId;
       const otherLedger = ledgers.find((l: Ledger) => l.id === otherLedgerId) ?? null;
+
       const otherName = otherLedger ? getLedgerLabel(otherLedger, language as AppLanguage) : otherLedgerId;
+      const isOpeningTx =
+        (otherLedger?.name || '').toLowerCase().includes('opening balance') ||
+        (otherLedger?.name || '').toLowerCase() === OPENING_LEDGER_LABEL.toLowerCase();
 
       return {
         id: trans.id,
@@ -272,32 +291,64 @@ export default function LedgerDetailScreen() {
         remarks: trans.narration || '',
         debit: isDebit ? trans.amount : 0,
         credit: !isDebit ? trans.amount : 0,
-        isOpeningTx: (otherLedger?.name || '').toLowerCase().includes('opening balance'),
+        isOpeningTx,
       };
     });
   }, [ledger, isGroupView, ledgers, transactions, language]);
 
   const openingBalanceValue = useMemo(() => {
     if (!fromDate) return 0;
-    return baseLines.filter(l => l.date < fromDate).reduce((sum, l) => sum + (l.debit - l.credit), 0);
+    return baseLines
+      .filter((l) => l.date && l.date < fromDate)
+      .reduce((sum, l) => sum + (l.debit - l.credit), 0);
   }, [baseLines, fromDate]);
 
   const lines: LedgerLine[] = useMemo(() => {
     if (!ledger) return [];
     if (isGroupView) return groupLines;
 
-    const period = baseLines.filter(line => (!fromDate || line.date >= fromDate) && (!toDate || line.date <= toDate));
-    const ordered = [...period].sort((a, b) => a.date === b.date ? a.id.localeCompare(b.id) : a.date < b.date ? -1 : 1);
+    const period = baseLines.filter((line) => {
+      if (fromDate && line.date < fromDate) return false;
+      if (toDate && line.date > toDate) return false;
+      return true;
+    });
 
-    const openingRow: LedgerLine | null = openingBalanceValue !== 0 ? {
-      id: 'opening-bf', date: '', particular: language === 'ja' ? '前月繰越' : 'Opening balance B/F',
-      remarks: '', debit: openingBalanceValue > 0 ? openingBalanceValue : 0,
-      credit: openingBalanceValue < 0 ? Math.abs(openingBalanceValue) : 0,
-      balance: openingBalanceValue, isSyntheticOpening: true,
-    } : null;
+    const sortByDateThenId = (a: BaseLine, b: BaseLine) => {
+      if (a.date === b.date) return a.id.localeCompare(b.id);
+      return a.date < b.date ? -1 : 1;
+    };
+
+    if (!fromDate) {
+      const openingTx = period.filter((p) => !!p.isOpeningTx).sort((a, b) => a.id.localeCompare(b.id));
+      const rest = period.filter((p) => !p.isOpeningTx).sort(sortByDateThenId);
+
+      const ordered: BaseLine[] = [...openingTx.map((l) => ({ ...l, date: '' })), ...rest];
+
+      let running = 0;
+      return ordered.map((line) => {
+        running += line.debit - line.credit;
+        return { ...line, balance: running };
+      });
+    }
+
+    const ordered = [...period].sort(sortByDateThenId);
+
+    const openingRow: LedgerLine | null =
+      openingBalanceValue !== 0
+        ? {
+            id: 'opening-balance-bf',
+            date: '',
+            particular: language === 'ja' ? '前月繰越' : 'Opening balance B/F',
+            remarks: '',
+            debit: openingBalanceValue > 0 ? openingBalanceValue : 0,
+            credit: openingBalanceValue < 0 ? Math.abs(openingBalanceValue) : 0,
+            balance: openingBalanceValue,
+            isSyntheticOpening: true,
+          }
+        : null;
 
     let running = openingBalanceValue;
-    const withBalance = ordered.map(line => {
+    const withBalance: LedgerLine[] = ordered.map((line) => {
       running += line.debit - line.credit;
       return { ...line, balance: running };
     });
@@ -305,43 +356,195 @@ export default function LedgerDetailScreen() {
     return openingRow ? [openingRow, ...withBalance] : withBalance;
   }, [ledger, isGroupView, groupLines, baseLines, fromDate, toDate, openingBalanceValue, language]);
 
-  const totals = useMemo(() => lines.reduce((acc, line) => {
-    if (!line.isSyntheticOpening) { acc.debit += line.debit; acc.credit += line.credit; }
-    return acc;
-  }, { debit: 0, credit: 0 }), [lines]);
+  const totals = useMemo(() => {
+    return lines.reduce(
+      (acc, line) => {
+        if (line.isSyntheticOpening) return acc;
+        acc.debit += line.debit;
+        acc.credit += line.credit;
+        return acc;
+      },
+      { debit: 0, credit: 0 },
+    );
+  }, [lines]);
 
   const closingBalanceValue = useMemo(() => {
     if (lines.length === 0) return 0;
-    return isGroupView ? lines.reduce((sum, l) => sum + l.balance, 0) : lines[lines.length - 1].balance;
+    if (isGroupView) return lines.reduce((sum, l) => sum + (l.balance || 0), 0);
+    return lines[lines.length - 1].balance || 0;
   }, [lines, isGroupView]);
 
   if (!ledger) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-        <View style={styles.notFoundContainer}><Text style={styles.notFoundText}>{t.notFound}</Text></View>
+        <Stack.Screen options={{ title: t.ledger }} />
+        <View style={[styles.container, styles.notFoundContainer]}>
+          <Text style={styles.notFoundText}>{t.notFound}</Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>{t.back}</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
 
-  const closingBalanceText = closingBalanceValue === 0 ? '0' : `${formatAmount(Math.abs(closingBalanceValue))} ${closingBalanceValue > 0 ? t.dr : t.cr}`;
+  const closingBalanceText =
+    closingBalanceValue === 0
+      ? '0'
+      : `${formatAmount(Math.abs(closingBalanceValue))} ${closingBalanceValue > 0 ? t.dr : t.cr}`;
 
   const handleSaveMaster = async () => {
     const name = editName.trim();
     const groupName = editGroupName.trim();
-    if (!name || !groupName) return Alert.alert(t.validation, t.enterName);
+
+    if (!name) return Alert.alert(t.validation, t.enterName);
+    if (!groupName) return Alert.alert(t.validation, t.enterGroup);
+
     try {
       setSaving(true);
-      await updateLedger(ledger.id, { name, groupName, nature: editNature, isParty: editIsParty });
+      await updateLedger(ledger.id, {
+        name,
+        groupName,
+        nature: editNature,
+        isParty: editIsParty,
+      });
+
       Alert.alert(t.save, t.savedSuccess);
       setShowMaster(false);
-    } catch (err: any) { Alert.alert(t.error, err?.message); } finally { setSaving(false); }
+    } catch (err: any) {
+      console.error('[LedgerDetail] update failed', err);
+      Alert.alert(t.error, err?.message || t.error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleExportPdf = async () => {
-    if (lines.length === 0) return Alert.alert(t.ledger, t.exportEmpty);
-    const html = `<html><head><meta charset="utf-8" /><style>body{font-family:sans-serif;font-size:10px;padding:15px;}table{width:100%;border-collapse:collapse;margin-top:10px;}th,td{border-bottom:1px solid #eee;padding:5px;text-align:left;}th{background:#f9f9f9;}</style></head><body><h2 style="text-align:center;">${t.statementTitle}</h2><p><strong>${getLedgerLabel(ledger, language as AppLanguage)}</strong></p><table><thead><tr><th>${t.date}</th><th>${t.particulars}</th><th style="text-align:right;">${t.dr}</th><th style="text-align:right;">${t.cr}</th><th style="text-align:right;">${t.balance}</th></tr></thead><tbody>${lines.map(l => `<tr><td>${l.date}</td><td>${l.particular}</td><td style="text-align:right;">${l.debit || ''}</td><td style="text-align:right;">${l.credit || ''}</td><td style="text-align:right;">${formatNumberWithOptionalDecimals(l.balance)}</td></tr>`).join('')}</tbody></table></body></html>`;
-    const { uri } = await Print.printToFileAsync({ html });
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: t.shareTitle });
+    try {
+      if (lines.length === 0) {
+        Alert.alert(t.ledger, t.exportEmpty);
+        return;
+      }
+
+      const safeName = ledger.name.replace(/[^\w\-]+/g, '_') || 'ledger';
+      const fromLabel = fromDate || t.beginning;
+      const toLabel = toDate || t.today;
+      const fileName = `${safeName}_${fromLabel}_${toLabel}.pdf`;
+
+      const rowsHtml = lines
+        .map(
+          (line) => `
+        <tr>
+          <td>${line.date || ''}</td>
+          <td>
+            <strong style="font-weight:700;color:#000;">${line.particular}</strong><br/>
+            ${line.remarks ? `<span style="font-size:10px;color:#000;font-style:italic;">${line.remarks}</span>` : ''}
+          </td>
+          <td style="text-align:right;">${line.debit ? formatNumberWithOptionalDecimals(line.debit) : ''}</td>
+          <td style="text-align:right;">${line.credit ? formatNumberWithOptionalDecimals(line.credit) : ''}</td>
+          <td style="text-align:right;">${formatBalance(line.balance, t)}</td>
+        </tr>
+      `,
+        )
+        .join('\n');
+
+      const html = `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${t.statementTitle}</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; color: #000; padding: 16px; }
+              h1,h2,h3 { margin:0; padding:0; color:#000; }
+              .app-name { font-size: 10px; color:#000; text-align:center; }
+              .stmt-title { font-size: 13px; font-weight: 700; text-align:center; margin-top: 2px; letter-spacing: 1px; color:#000; }
+              .ledger-title { font-size: 18px; font-weight: 700; text-align:center; margin-top: 8px; color:#000; }
+              .ledger-meta { font-size: 11px; text-align:center; color:#000; margin-top: 2px; }
+              .period { font-size: 10px; text-align:center; margin-top: 4px; color:#000; }
+              .closing { font-size: 10px; text-align:center; margin-top: 2px; color:#000; }
+              table { width: 100%; border-collapse: collapse; margin-top: 12px; color:#000; }
+              thead tr { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; }
+              th,td { padding: 4px 3px; color:#000; }
+              tbody td { border-bottom: 1px solid rgba(0,0,0,0.5); }
+              th { font-size: 10px; text-align: left; font-weight:700; }
+              .amount { text-align: right; }
+              tfoot td { border-top: 1px solid #000; border-bottom: 1px solid #000; font-weight:700; background:#fff; }
+            </style>
+          </head>
+          <body>
+            <div class="app-name">MobiLedger</div>
+            <div class="stmt-title">${t.statementTitle}</div>
+            <div class="ledger-title">${getLedgerLabel(ledger, language as AppLanguage)}</div>
+            <div class="ledger-meta">${getGroupLabel(ledger.groupName, language as AppLanguage)} · ${getNatureLabel(ledger.nature, language as AppLanguage)}</div>
+            <div class="period">${t.period}: ${fromDate || t.beginning} ～ ${toDate || t.today}</div>
+            <div class="closing">${t.closingBalance} ${closingBalanceText}</div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:16%;">${t.date}</th>
+                  <th style="width:40%;">${t.particulars}</th>
+                  <th style="width:14%; text-align:right;">${t.dr}</th>
+                  <th style="width:14%; text-align:right;">${t.cr}</th>
+                  <th style="width:16%; text-align:right;">${t.balance}</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+              <tfoot>
+                <tr>
+                  <td></td>
+                  <td>${t.total}</td>
+                  <td class="amount">${formatNumberWithOptionalDecimals(totals.debit)}</td>
+                  <td class="amount">${formatNumberWithOptionalDecimals(totals.credit)}</td>
+                  <td class="amount">${formatBalance(closingBalanceValue, t)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+
+      let targetUri = uri;
+      const dir = FileSystem.cacheDirectory;
+      if (dir) {
+        const newPath = dir + fileName;
+        await FileSystem.moveAsync({ from: uri, to: newPath });
+        targetUri = newPath;
+      }
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert(t.ledger, `PDF created at: ${targetUri}\n(Sharing is not available on this device)`);
+        return;
+      }
+
+      await Sharing.shareAsync(targetUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: t.shareTitle,
+      });
+    } catch (err) {
+      console.error('[LedgerDetail] PDF export failed', err);
+      Alert.alert(t.error, t.error);
+    }
+  };
+
+  const renderNatureChip = (value: Ledger['nature']) => {
+    const selected = editNature === value;
+    return (
+      <TouchableOpacity
+        key={value}
+        style={[styles.natureChip, selected && styles.natureChipSelected]}
+        onPress={() => setEditNature(value)}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.natureChipText, selected && styles.natureChipTextSelected]}>
+          {getNatureLabel(value, language as AppLanguage)}
+        </Text>
+      </TouchableOpacity>
+    );
   };
 
   return (
@@ -351,20 +554,60 @@ export default function LedgerDetailScreen() {
         <View style={styles.printHeaderCard}>
           <Text style={styles.appNameText}>MobiLedger</Text>
           <Text style={styles.statementTitle}>{t.statementTitle}</Text>
+
           <TouchableOpacity onPress={() => setShowMaster(true)} activeOpacity={0.7}>
             <Text style={styles.ledgerTitleText}>{getLedgerLabel(ledger, language as AppLanguage)}</Text>
           </TouchableOpacity>
-          <Text style={styles.ledgerMetaText}>{getGroupLabel(ledger.groupName, language as AppLanguage)} · {getNatureLabel(ledger.nature, language as AppLanguage)}</Text>
-          <View style={styles.headerBottomRow}><Text style={styles.headerSmallLabel}>{t.closingBalance} <Text style={styles.headerBalanceText}>{closingBalanceText}</Text></Text></View>
+
+          <Text style={styles.ledgerMetaText}>
+            {getGroupLabel(ledger.groupName, language as AppLanguage)} · {getNatureLabel(ledger.nature, language as AppLanguage)}
+          </Text>
+
+          <View style={styles.headerBottomRow}>
+            <Text style={styles.headerSmallLabel}>
+              {t.closingBalance} <Text style={styles.headerBalanceText}>{closingBalanceText}</Text>
+            </Text>
+          </View>
         </View>
 
         <View style={styles.filterCard}>
           <Text style={styles.filterTitle}>{t.period}</Text>
           <View style={styles.filterRow}>
-            <View style={styles.filterCol}><Text style={styles.filterLabel}>{t.from}</Text><TouchableOpacity style={styles.filterInputButton} onPress={() => { setDatePickerTarget('from'); setPickerDate(parseDateString(fromDate)); setShowDatePicker(true); }}><Text style={fromDate ? styles.filterInputText : styles.filterInputPlaceholder}>{fromDate || t.selectDate}</Text></TouchableOpacity></View>
-            <View style={styles.filterCol}><Text style={styles.filterLabel}>{t.to}</Text><TouchableOpacity style={styles.filterInputButton} onPress={() => { setDatePickerTarget('to'); setPickerDate(parseDateString(toDate)); setShowDatePicker(true); }}><Text style={toDate ? styles.filterInputText : styles.filterInputPlaceholder}>{toDate || t.selectDate}</Text></TouchableOpacity></View>
+            <View style={styles.filterCol}>
+              <Text style={styles.filterLabel}>{t.from}</Text>
+              <TouchableOpacity style={styles.filterInputButton} onPress={() => { setDatePickerTarget('from'); setPickerDate(parseDateString(fromDate)); setShowDatePicker(true); }}>
+                <Text style={fromDate ? styles.filterInputText : styles.filterInputPlaceholder}>
+                  {fromDate || t.selectDate}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.filterCol}>
+              <Text style={styles.filterLabel}>{t.to}</Text>
+              <TouchableOpacity style={styles.filterInputButton} onPress={() => { setDatePickerTarget('to'); setPickerDate(parseDateString(toDate)); setShowDatePicker(true); }}>
+                <Text style={toDate ? styles.filterInputText : styles.filterInputPlaceholder}>
+                  {toDate || t.selectDate}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.filterActionsRow}><TouchableOpacity style={styles.filterClearButton} onPress={() => { setFromDate(''); setToDate(''); }}><Text style={styles.filterClearText}>{t.clear}</Text></TouchableOpacity><TouchableOpacity style={styles.exportButton} onPress={handleExportPdf}><Text style={styles.exportButtonText}>{t.exportPdf}</Text></TouchableOpacity></View>
+
+          <View style={styles.filterActionsRow}>
+            <TouchableOpacity
+              style={styles.filterClearButton}
+              onPress={() => {
+                setFromDate('');
+                setToDate('');
+              }}
+            >
+              <Text style={styles.filterClearText}>{t.clear}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.exportRow}>
+              <TouchableOpacity style={styles.exportButton} onPress={handleExportPdf}>
+                <Text style={styles.exportButtonText}>{t.exportPdf}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
         <View style={styles.tableCard}>
@@ -375,42 +618,167 @@ export default function LedgerDetailScreen() {
             <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>{t.cr}</Text>
             <Text style={[styles.colBalance, styles.tableHeaderText, styles.right]}>{t.balance}</Text>
           </View>
+
           {lines.length === 0 ? (
-            <View style={styles.emptyBox}><Text style={styles.emptyText}>{isGroupView ? t.noChildLedgers : t.noEntries}</Text></View>
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>
+                {isGroupView ? t.noChildLedgers : t.noEntries}
+              </Text>
+            </View>
           ) : (
             <>
-              {lines.map((line) => (
-                <TouchableOpacity key={line.id} disabled={!(isGroupView && !!line.targetLedgerId)} onPress={() => line.targetLedgerId && router.push({ pathname: '/ledger/[id]', params: { id: line.targetLedgerId } })} style={styles.tableRow}>
-                  <View style={styles.colDate}><Text style={styles.dateText}>{line.date || ''}</Text></View>
-                  <View style={styles.particularCell}><Text style={[styles.particularText, isGroupView && !!line.targetLedgerId && styles.clickableText]}>{line.particular}</Text>{line.remarks ? <Text style={styles.remarksText}>{line.remarks}</Text> : null}</View>
-                  <View style={styles.amountCell}><Text style={[styles.amountText, styles.right]}>{line.debit ? formatNumberWithOptionalDecimals(line.debit) : ''}</Text></View>
-                  <View style={styles.amountCell}><Text style={[styles.amountText, styles.right]}>{line.credit ? formatNumberWithOptionalDecimals(line.credit) : ''}</Text></View>
-                  <View style={styles.balanceCell}><Text style={[styles.amountText, styles.right]}>{formatNumberWithOptionalDecimals(Math.abs(line.balance))} {line.balance >= 0 ? t.dr : t.cr}</Text></View>
-                </TouchableOpacity>
-              ))}
+              {lines.map((line) => {
+                const isClickable = isGroupView && !!line.targetLedgerId;
+
+                const RowWrap: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+                  isClickable ? (
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => line.targetLedgerId && router.push({ pathname: '/ledger/[id]', params: { id: line.targetLedgerId } })}
+                      style={[styles.tableRow, styles.clickableRow]}
+                    >
+                      {children}
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.tableRow}>{children}</View>
+                  );
+
+                return (
+                  <RowWrap key={line.id}>
+                    <View style={styles.colDate}>
+                      <Text style={styles.dateText}>{line.date || ''}</Text>
+                    </View>
+
+                    <View style={styles.particularCell}>
+                      <View style={styles.particularRow}>
+                        <Text style={[styles.particularText, isClickable && styles.clickableText]}>
+                          {line.particular}
+                        </Text>
+                        {isClickable ? <Text style={styles.chevronText}>›</Text> : null}
+                      </View>
+
+                      {line.remarks ? <Text style={styles.remarksText}>{line.remarks}</Text> : null}
+                    </View>
+
+                    <View style={styles.amountCell}>
+                      <Text style={[styles.amountText, styles.right]}>
+                        {line.debit ? formatNumberWithOptionalDecimals(line.debit) : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.amountCell}>
+                      <Text style={[styles.amountText, styles.right]}>
+                        {line.credit ? formatNumberWithOptionalDecimals(line.credit) : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.balanceCell}>
+                      <Text style={[styles.amountText, styles.right]}>{formatNumberWithOptionalDecimals(Math.abs(line.balance))} {line.balance >= 0 ? t.dr : t.cr}</Text>
+                    </View>
+                  </RowWrap>
+                );
+              })}
+
               <View style={[styles.tableRow, styles.totalRow]}>
-                <View style={styles.colDate} /><View style={styles.particularCell}><Text style={styles.totalLabel}>{t.total}</Text></View>
-                <View style={styles.amountCell}><Text style={[styles.amountText, styles.totalAmount, styles.right]}>{formatNumberWithOptionalDecimals(totals.debit)}</Text></View>
-                <View style={styles.amountCell}><Text style={[styles.amountText, styles.totalAmount, styles.right]}>{formatNumberWithOptionalDecimals(totals.credit)}</Text></View>
-                <View style={styles.balanceCell}><Text style={[styles.amountText, styles.totalAmount, styles.right]}>{formatNumberWithOptionalDecimals(Math.abs(closingBalanceValue))} {closingBalanceValue >= 0 ? t.dr : t.cr}</Text></View>
+                <View style={styles.colDate} />
+                <View style={styles.particularCell}>
+                  <Text style={styles.totalLabel}>{t.total}</Text>
+                </View>
+                <View style={styles.amountCell}>
+                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                    {formatNumberWithOptionalDecimals(totals.debit)}
+                  </Text>
+                </View>
+                <View style={styles.amountCell}>
+                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                    {formatNumberWithOptionalDecimals(totals.credit)}
+                  </Text>
+                </View>
+                <View style={styles.balanceCell}>
+                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                    {formatNumberWithOptionalDecimals(Math.abs(closingBalanceValue))} {closingBalanceValue >= 0 ? t.dr : t.cr}
+                  </Text>
+                </View>
               </View>
             </>
           )}
         </View>
       </ScrollView>
 
-      {showDatePicker && <DateTimePicker value={pickerDate} mode="date" display={Platform.OS === 'ios' ? 'inline' : 'default'} onChange={(ev, dt) => { if(Platform.OS==='android') setShowDatePicker(false); if(dt && ev.type==='set') { const val = formatDateToInput(dt); if(datePickerTarget==='from') setFromDate(val); else setToDate(val); } }} />}
+      {showDatePicker && (
+        <DateTimePicker
+          value={pickerDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          onChange={(ev, dt) => { 
+            if(Platform.OS==='android') setShowDatePicker(false); 
+            if(dt && ev.type==='set') { 
+              const val = formatDateToInput(dt); 
+              if(datePickerTarget==='from') setFromDate(val); 
+              else setToDate(val); 
+            } 
+          }}
+        />
+      )}
 
       {showMaster && (
-        <View style={styles.overlay}><View style={styles.masterCard}>
-          <Text style={styles.masterTitle}>{t.ledgerMaster}</Text><Text style={styles.masterLabel}>{t.masterHint}</Text>
-          <Text style={styles.masterLabel}>{t.ledgerName}</Text><TextInput style={styles.masterInput} value={editName} onChangeText={setEditName} />
-          <Text style={styles.masterLabel}>{t.category}</Text>
-          <View style={styles.natureRow}>{['Asset', 'Liability', 'Income', 'Expense'].map(n => <TouchableOpacity key={n} style={[styles.natureChip, editNature === n && styles.natureChipSelected]} onPress={() => setEditNature(n as any)}><Text style={[styles.natureChipText, editNature === n && styles.natureChipTextSelected]}>{getNatureLabel(n, language as AppLanguage)}</Text></TouchableOpacity>)}</View>
-          <Text style={styles.masterLabel}>{t.subCategory}</Text><TextInput style={styles.masterInput} value={editGroupName} onChangeText={setEditGroupName} />
-          <View style={styles.partyRow}><Text style={styles.masterLabel}>{t.treatAsParty}</Text><Switch value={editIsParty} onValueChange={setEditIsParty} /></View>
-          <View style={styles.masterButtonsRow}><TouchableOpacity style={[styles.masterButton, styles.masterCancelButton]} onPress={() => setShowMaster(false)}><Text>{t.cancel}</Text></TouchableOpacity><TouchableOpacity style={[styles.masterButton, styles.masterSaveButton]} onPress={handleSaveMaster} disabled={saving}><Text style={styles.masterSaveText}>{saving ? t.saving : t.save}</Text></TouchableOpacity></View>
-        </View></View>
+        <View style={styles.overlay}>
+          <View style={styles.masterCard}>
+            <Text style={styles.masterTitle}>{t.ledgerMaster}</Text>
+            <Text style={styles.masterHint}>{t.masterHint}</Text>
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>{t.ledgerName}</Text>
+            <TextInput style={styles.masterInput} value={editName} onChangeText={setEditName} />
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>{t.category}</Text>
+            <View style={styles.natureRow}>
+              {['Asset', 'Liability', 'Income', 'Expense'].map((n) => renderNatureChip(n as any))}
+            </View>
+
+            <Text style={[styles.masterLabel, { marginTop: 8 }]}>{t.subCategory}</Text>
+            <TextInput
+              style={styles.masterInput}
+              value={editGroupName}
+              onChangeText={setEditGroupName}
+            />
+
+            <View style={styles.partyRow}>
+              <Text style={styles.masterLabel}>{t.treatAsParty}</Text>
+              <Switch value={editIsParty} onValueChange={setEditIsParty} />
+            </View>
+
+            <View style={styles.masterButtonsRow}>
+              <TouchableOpacity
+                style={styles.masterDeleteButton}
+                onPress={() => {
+                  Alert.alert(t.deleteLedgerTitle, t.deleteLedgerHint, [
+                    { text: t.cancel, style: 'cancel' },
+                    { text: t.delete, style: 'destructive', onPress: async () => {
+                      try { await deleteLedger(ledger.id); Alert.alert(t.deleted, t.ledgerDeleted, [{ text: 'OK', onPress: () => router.replace('/(tabs)/ledgers') }]); }
+                      catch (err: any) { Alert.alert(t.cannotDelete, err?.message || t.deleteError); }
+                    }}
+                  ]);
+                }}
+              >
+                <Text style={styles.masterDeleteText}>{t.delete}</Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={styles.masterCancelButton}
+                  onPress={() => setShowMaster(false)}
+                >
+                  <Text style={styles.masterCancelText}>{t.cancel}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.masterSaveButton, saving && { opacity: 0.6 }]}
+                  onPress={() => !saving && void handleSaveMaster()}
+                >
+                  <Text style={styles.masterSaveText}>{saving ? t.saving : t.save}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
       )}
     </SafeAreaView>
   );
@@ -420,16 +788,21 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.dark },
   container: { flex: 1, backgroundColor: COLORS.lightBg },
   content: { padding: 16, paddingBottom: 24 },
-  notFoundContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  notFoundText: { fontSize: 14, color: COLORS.muted },
-  printHeaderCard: { borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, padding: 16, backgroundColor: '#ffffff', marginBottom: 12 },
+
+  notFoundContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  notFoundText: { fontSize: 14, color: COLORS.muted, marginBottom: 12 },
+  backButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border },
+  backButtonText: { color: COLORS.dark, fontSize: 13 },
+
+  printHeaderCard: { borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#ffffff', marginBottom: 12 },
   appNameText: { fontSize: 11, color: COLORS.muted, textAlign: 'center' },
-  statementTitle: { fontSize: 14, fontWeight: '700', textAlign: 'center', marginTop: 2 },
-  ledgerTitleText: { fontSize: 20, fontWeight: '700', textAlign: 'center', marginTop: 8 },
+  statementTitle: { fontSize: 14, fontWeight: '700', color: COLORS.dark, textAlign: 'center', marginTop: 2, letterSpacing: 1.2 },
+  ledgerTitleText: { fontSize: 20, fontWeight: '700', color: COLORS.dark, textAlign: 'center', marginTop: 8 },
   ledgerMetaText: { fontSize: 12, color: COLORS.muted, textAlign: 'center', marginTop: 2 },
   headerBottomRow: { marginTop: 8, alignItems: 'center' },
   headerSmallLabel: { fontSize: 11, color: COLORS.muted },
   headerBalanceText: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
+
   filterCard: { borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, padding: 10, backgroundColor: '#f9fbff', marginBottom: 12 },
   filterTitle: { fontSize: 13, fontWeight: '600', color: COLORS.dark, marginBottom: 6 },
   filterRow: { flexDirection: 'row', gap: 8 },
@@ -441,41 +814,60 @@ const styles = StyleSheet.create({
   filterActionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   filterClearButton: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border },
   filterClearText: { fontSize: 11, color: COLORS.muted },
+  exportRow: { flexDirection: 'row', gap: 8 },
   exportButton: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 18, backgroundColor: COLORS.primary },
   exportButtonText: { fontSize: 12, color: COLORS.lightBg, fontWeight: '600' },
+
   tableCard: { borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.lightBg, paddingHorizontal: 8, paddingTop: 6, paddingBottom: 8 },
-  tableHeader: { flexDirection: 'row', borderTopWidth: 2, borderTopColor: '#000', borderBottomWidth: 2, borderBottomColor: '#000', paddingBottom: 4, marginBottom: 4 },
-  colDate: { flex: 1.1 }, colParticular: { flex: 2.4 }, colAmount: { flex: 1 }, colBalance: { flex: 1.1 },
+
+  tableHeader: { flexDirection: 'row', borderTopWidth: 2, borderTopColor: '#000000', borderBottomWidth: 2, borderBottomColor: '#000000', paddingBottom: 4, marginBottom: 4 },
+  colDate: { flex: 1.1 },
+  colParticular: { flex: 2.4 },
+  colAmount: { flex: 1 },
+  colBalance: { flex: 1.1 },
   tableHeaderText: { fontSize: 11, fontWeight: '700', color: COLORS.dark },
+
   tableRow: { flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.1)' },
+
+  clickableRow: { backgroundColor: '#fff' },
+  particularRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  clickableText: { color: COLORS.accent, fontWeight: '600' },
+  chevronText: { color: COLORS.muted, fontSize: 18, lineHeight: 18, marginLeft: 6 },
+
   dateText: { fontSize: 11, color: COLORS.muted },
   particularCell: { flex: 2.4 },
   particularText: { fontSize: 12, color: COLORS.dark },
-  clickableText: { color: COLORS.accent, fontWeight: '600' },
   remarksText: { fontSize: 10, color: COLORS.muted, marginTop: 1 },
   amountCell: { flex: 1, justifyContent: 'center' },
   balanceCell: { flex: 1.1, justifyContent: 'center' },
   amountText: { fontSize: 12, color: COLORS.dark, textAlign: 'right' },
   right: { textAlign: 'right' },
-  totalRow: { backgroundColor: '#fdf7fb', borderTopWidth: 1, borderTopColor: '#000', borderBottomWidth: 1, borderBottomColor: '#000' },
+
+  totalRow: { backgroundColor: '#fdf7fb', borderTopWidth: 1, borderTopColor: '#000000', borderBottomWidth: 1, borderBottomColor: '#000000' },
   totalLabel: { fontSize: 12, fontWeight: '700', color: COLORS.dark },
   totalAmount: { fontWeight: '700', color: COLORS.primary },
+
   emptyBox: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 13, color: COLORS.muted },
-  overlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', padding: 16 },
-  masterCard: { width: '100%', borderRadius: 16, backgroundColor: '#ffffff', padding: 14 },
-  masterTitle: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
-  masterLabel: { fontSize: 12, color: COLORS.muted, marginTop: 8, marginBottom: 4 },
-  masterInput: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, padding: 8, fontSize: 13, backgroundColor: '#f5f5f5' },
-  natureRow: { flexDirection: 'row', gap: 6 },
+
+  overlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  masterCard: { width: '100%', maxWidth: 420, borderRadius: 16, backgroundColor: '#ffffff', padding: 14 },
+  masterTitle: { fontSize: 16, fontWeight: '600', color: COLORS.dark },
+  masterHint: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  masterLabel: { fontSize: 12, color: COLORS.muted, marginBottom: 4 },
+  masterInput: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 7, fontSize: 13, color: COLORS.dark, backgroundColor: '#f5f5f5' },
+  natureRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   natureChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border },
   natureChipSelected: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  natureChipText: { fontSize: 12 },
+  natureChipText: { fontSize: 12, color: COLORS.dark },
   natureChipTextSelected: { color: COLORS.lightBg, fontWeight: '600' },
   partyRow: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  masterButtonsRow: { marginTop: 14, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
-  masterButton: { padding: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  masterCancelButton: { padding: 10 },
+  masterButtonsRow: { marginTop: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  masterButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18 },
+  masterCancelButton: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#ffffff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18 },
+  masterCancelText: { fontSize: 13, color: COLORS.dark },
   masterSaveButton: { backgroundColor: COLORS.primary, paddingHorizontal: 16, borderRadius: 18, justifyContent: 'center' },
-  masterSaveText: { color: COLORS.lightBg, fontWeight: '600' },
+  masterSaveText: { fontSize: 13, color: COLORS.lightBg, fontWeight: '600' },
+  masterDeleteButton: { borderWidth: 1, borderColor: '#ffe0e0', backgroundColor: '#fff4f4', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18 },
+  masterDeleteText: { fontSize: 13, color: COLORS.danger, fontWeight: '600' },
 });
