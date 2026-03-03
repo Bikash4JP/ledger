@@ -15,7 +15,11 @@
     "@react-navigation/bottom-tabs": "^7.8.11",
     "@react-navigation/native": "^7.1.24",
     "@react-navigation/native-stack": "^7.8.5",
+<<<<<<< HEAD
+    "expo": "~54.0.30",
+=======
     "expo": "~54.0.28",
+>>>>>>> 825aac2a6aa6da35ccc92f5d0729daee23f2a72a
     "expo-build-properties": "~1.0.10",
     "expo-constants": "~18.0.11",
     "expo-file-system": "~19.0.21",
