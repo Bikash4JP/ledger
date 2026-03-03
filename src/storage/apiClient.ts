@@ -2,7 +2,7 @@
 import { getCurrentUserEmail } from '../config/userIdentity';
 import type { VoucherType } from '../models/transaction';
 
-export const API_BASE_URL = 'http://3.107.197.46';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -63,6 +63,10 @@ export function apiCreateLedger(payload: {
   groupName: string;
   nature: 'Asset' | 'Liability' | 'Income' | 'Expense';
   isParty?: boolean;
+
+  // ✅ NEW
+  isGroup?: boolean;
+  categoryLedgerId?: string | null;
 }) {
   return request<unknown>('/ledgers', 'POST', payload);
 }

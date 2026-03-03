@@ -1,10 +1,8 @@
-// src/storage/types.ts
+// ledger/src/storage/types.ts
 import type { Ledger } from '../models/ledger';
-import type { Transaction, VoucherType } from '../models/transaction';
+import type { VoucherType } from '../models/transaction';
 
-// Yahan pe alag VoucherType define NAHI karna.
-// models/transaction ka hi VoucherType reuse kar rahe hain.
-
+/** Entry create payload */
 export type EntryLineInput = {
   debitLedgerId: string;
   creditLedgerId: string;
@@ -13,30 +11,23 @@ export type EntryLineInput = {
 };
 
 export type EntryInput = {
-  date: string;            // 'YYYY-MM-DD'
+  date: string;
   voucherType: VoucherType;
   narration?: string;
   lines: EntryLineInput[];
 };
 
-export interface IStorage {
-  // App start pe saara data load
-  loadInitialData(): Promise<{
-    ledgers: Ledger[];
-    transactions: Transaction[];
-  }>;
+/**
+ * ✅ Ledger create/update payload
+ * (Front-end -> Backend)
+ */
+export type LedgerInput = {
+  name: string;
+  groupName: string;
+  nature: Ledger['nature'];
+  isParty?: boolean;
 
-  // Naya ledger create
-  createLedger(input: {
-    name: string;
-    groupName: string;
-    nature: 'Asset' | 'Liability' | 'Income' | 'Expense';
-    isParty?: boolean;
-  }): Promise<Ledger>;
-
-  // Naya entry (voucher) create
-  createEntry(input: EntryInput): Promise<{
-    ledgers: Ledger[];
-    transactions: Transaction[];
-  }>;
-}
+  // ✅ NEW: parent category support
+  isGroup?: boolean;
+  parentLedgerId?: string | null;
+};

@@ -27,11 +27,26 @@ export type NewTransactionInput = {
   voucherType?: VoucherType;
 };
 
-type NewLedgerInput = {
+/**
+ * ✅ Updated: Parent/Category support (backend aligned)
+ * - isGroup: true = parent/group ledger
+ * - categoryLedgerId: child -> parent ledger id (DB: category_ledger_id)
+ *
+ * (We keep parentLedgerId as backward-compat alias)
+ */
+export type NewLedgerInput = {
   name: string;
   groupName: string;
   nature: Ledger['nature'];
   isParty?: boolean;
+
+  isGroup?: boolean;
+
+  // ✅ NEW (backend)
+  categoryLedgerId?: string | null;
+
+  // ✅ backward-compat (old UI)
+  parentLedgerId?: string | null;
 };
 
 type DataContextValue = {
@@ -51,10 +66,19 @@ type DataContextValue = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 // Backend URL
-const API_URL = 'http://3.107.197.46';
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
-// 👇 yahan define kar rahe hain kitne standard ledgers demo mode me dikhane hain
+// demo mode me kitne standard ledgers dikhane hain
 const DEMO_LEDGER_COUNT = 56;
+
+// ✅ normalize helper: always keep BOTH keys in frontend state
+function normalizeLedger(l: any): Ledger {
+  return {
+    ...l,
+    categoryLedgerId: l.categoryLedgerId ?? l.parentLedgerId ?? null,
+    parentLedgerId: l.parentLedgerId ?? l.categoryLedgerId ?? null, // optional alias
+  };
+}
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
@@ -73,24 +97,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
         if (hasUser) {
           console.log('[Data] initial load → backend via storage (user mode)');
           const { ledgers, transactions } = await storage.loadInitialData();
-          setLedgers(ledgers);
+          setLedgers(ledgers.map(normalizeLedger));
           setTransactions(transactions);
         } else {
-          console.log(
-            '[Data] initial load → demo seeds only (no logged-in user)',
-          );
-          // 👇 sirf pehle 56 ledgers demo me dikhayenge
+          console.log('[Data] initial load → demo seeds only (no logged-in user)');
           const demoLedgers = seedLedgers.slice(0, DEMO_LEDGER_COUNT);
-          setLedgers(demoLedgers);
+          setLedgers(demoLedgers.map(normalizeLedger as any));
           setTransactions(seedTransactions);
         }
       } catch (err) {
-        console.warn(
-          '[Data] Failed to load data, falling back to seeds',
-          err,
-        );
+        console.warn('[Data] Failed to load data, falling back to seeds', err);
         const demoLedgers = seedLedgers.slice(0, DEMO_LEDGER_COUNT);
-        setLedgers(demoLedgers);
+        setLedgers(demoLedgers.map(normalizeLedger as any));
         setTransactions(seedTransactions);
       } finally {
         setIsHydrated(true);
@@ -100,20 +118,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
     void loadData();
   }, [hasUser]);
 
-  // -------- RELOAD ALL DATA (Settings se manual refresh) ----------
+  // -------- RELOAD ALL DATA ----------
   const reloadFromServer = async (): Promise<void> => {
     try {
       if (!hasUser) {
         console.log('[Data] reload → demo seeds only (no logged-in user)');
         const demoLedgers = seedLedgers.slice(0, DEMO_LEDGER_COUNT);
-        setLedgers(demoLedgers);
+        setLedgers(demoLedgers.map(normalizeLedger as any));
         setTransactions(seedTransactions);
         return;
       }
 
       console.log('[Data] manual reload from backend (user mode)');
       const { ledgers, transactions } = await storage.loadInitialData();
-      setLedgers(ledgers);
+      setLedgers(ledgers.map(normalizeLedger));
       setTransactions(transactions);
     } catch (err) {
       console.warn('Failed to reload data from backend', err);
@@ -124,9 +142,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // -------- CREATE LEDGER ----------
   const addLedger = async (input: NewLedgerInput): Promise<Ledger | null> => {
     try {
-      const created = await storage.createLedger(input);
-      setLedgers((prev) => [...prev, created]);
-      return created;
+      // ✅ ensure backend gets categoryLedgerId
+      const payload: NewLedgerInput = {
+        ...input,
+        name: input.name?.trim(),
+        groupName: input.groupName?.trim(),
+        categoryLedgerId:
+          input.categoryLedgerId ?? input.parentLedgerId ?? null,
+      };
+
+      const created = await storage.createLedger(payload as any);
+      const normalized = normalizeLedger(created);
+
+      setLedgers((prev) => [...prev, normalized]);
+      return normalized;
     } catch (err) {
       console.warn('Failed to create ledger on backend', err);
       return null;
@@ -139,10 +168,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     input: NewLedgerInput,
   ): Promise<Ledger | null> => {
     try {
+      const email = getCurrentUserEmail();
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (email) headers['x-user-email'] = email; // ✅ important
+
+      // ✅ align field name for backend
+      const payload: any = {
+        ...input,
+        name: input.name?.trim(),
+        groupName: input.groupName?.trim(),
+        categoryLedgerId:
+          input.categoryLedgerId ?? input.parentLedgerId ?? null,
+      };
+
       const res = await fetch(`${API_URL}/ledgers/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        headers,
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -153,12 +198,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
         throw new Error(msg);
       }
 
-      const updated: Ledger = await res.json();
+      const updatedRaw: Ledger = await res.json();
+      const updated = normalizeLedger(updatedRaw);
 
-      setLedgers((prev) =>
-        prev.map((l) => (l.id === id ? { ...l, ...updated } : l)),
-      );
-
+      setLedgers((prev) => prev.map((l) => (l.id === id ? { ...l, ...updated } : l)));
       return updated;
     } catch (err) {
       console.warn('Failed to update ledger on backend', err);
@@ -169,8 +212,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // -------- DELETE LEDGER ----------
   const deleteLedger = async (id: string): Promise<void> => {
     try {
+      const email = getCurrentUserEmail();
+      const headers: Record<string, string> = {};
+      if (email) headers['x-user-email'] = email; // ✅ important
+
       const res = await fetch(`${API_URL}/ledgers/${id}`, {
         method: 'DELETE',
+        headers,
       });
 
       if (res.status === 400) {
@@ -212,12 +260,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       await storage.createEntry(entryPayload);
 
-      const {
-        ledgers: nextLedgers,
-        transactions: nextTx,
-      } = await storage.loadInitialData();
+      const { ledgers: nextLedgers, transactions: nextTx } =
+        await storage.loadInitialData();
 
-      setLedgers(nextLedgers);
+      setLedgers(nextLedgers.map(normalizeLedger));
       setTransactions(nextTx);
     } catch (err) {
       console.warn('Failed to create entry on backend', err);
@@ -227,11 +273,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // -------- DELETE ENTRY ----------
   const deleteTransaction = async (id: string): Promise<void> => {
     try {
-      // 🔎 Pehle local state se entryId nikaalo
       const localTx: any =
         transactions.find((t: Transaction) => t.id === id) ?? null;
 
-      // Backend ko jo ID chahiye: entryId (agar available), warna jo UI se aaya
       const entryId: string = localTx?.entryId ?? id;
 
       console.log('[Data] deleting entry', id, '→ entryId:', entryId);
@@ -251,24 +295,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       if (!res.ok && res.status !== 204) {
         let msg = `Delete failed: ${res.status}`;
-
         try {
           const body = await res.json();
           if (body?.error) msg = body.error;
-        } catch {
-          // JSON parse error ignore
-        }
-
+        } catch {}
         console.warn('[Data] delete entry failed', res.status, msg);
         throw new Error(msg);
       }
 
-      const {
-        ledgers: nextLedgers,
-        transactions: nextTx,
-      } = await storage.loadInitialData();
+      const { ledgers: nextLedgers, transactions: nextTx } =
+        await storage.loadInitialData();
 
-      setLedgers(nextLedgers);
+      setLedgers(nextLedgers.map(normalizeLedger));
       setTransactions(nextTx);
     } catch (err) {
       console.warn('Failed to delete entry on backend', err);

@@ -7,16 +7,21 @@ import type { Ledger } from '../models/ledger';
  * - Balance Sheet (Assets / Liabilities / Equity)
  *
  * Parties (customers/suppliers/loans) tum khud addLedger se banao.
+ *
+ * ✅ IMPORTANT:
+ * These seed ledgers are treated as "Parent / Category ledgers"
+ * so we mark them as: isGroup=true and parentLedgerId=null.
  */
-export const seedLedgers: Ledger[] = [
+
+const RAW: Ledger[] = [
   // ===== EQUITY / CORE =====
   {
-  id: 'L0',
-  name: 'Opening Balances A/C',
-  groupName: 'Capital Account',
-  nature: 'Liability',
-  isParty: false,
-},
+    id: 'L0',
+    name: 'Opening Balances A/C',
+    groupName: 'Capital Account',
+    nature: 'Liability',
+    isParty: false,
+  },
   {
     id: 'L1',
     name: 'Capital A/C',
@@ -511,3 +516,10 @@ export const seedLedgers: Ledger[] = [
 
   // ===== EXAMPLE PARTY / LOAN LEDGER =====
 ];
+
+// ✅ Mark all standard ledgers as parent categories
+export const seedLedgers: Ledger[] = RAW.map((l) => ({
+  ...l,
+  isGroup: true,
+  parentLedgerId: null,
+}));

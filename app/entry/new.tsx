@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -45,6 +46,13 @@ type CreateLedgerContext =
   | { source: 'other'; name: string }
   | { source: 'journal-dr'; lineId: string; name: string }
   | { source: 'journal-cr'; lineId: string; name: string };
+
+// ✅ NEW: parent suggestions can be real-ledger OR standard groupName
+type ParentSuggestion = {
+  id?: string; // only if real ledger
+  name: string;
+  isRealLedger: boolean;
+};
 
 // 🔹 Helper: unique ledgers by lower(name)
 const uniqueByName = (items: Ledger[]): Ledger[] => {
@@ -134,13 +142,18 @@ export default function NewEntryScreen() {
   const [newLedgerOpeningType, setNewLedgerOpeningType] =
     useState<'Dr' | 'Cr'>('Dr');
 
+  // ✅ NEW: parent/category support
+  const [newLedgerIsGroup, setNewLedgerIsGroup] = useState(false);
+  const [parentQuery, setParentQuery] = useState('');
+  const [parentLedgerId, setParentLedgerId] = useState<string | undefined>();
+  const [showParentSuggestions, setShowParentSuggestions] = useState(true);
+
   // ✅ UX: show progress text + prevent multiple taps while creating ledger
   const [isCreatingLedger, setIsCreatingLedger] = useState(false);
   const [ledgerCreateStage, setLedgerCreateStage] = useState<
     'idle' | 'creating' | 'done'
   >('idle');
   const closeCreateLedgerModalAfterDone = () => {
-    // show "New account created" briefly, then close
     setTimeout(() => {
       setCreateCtx(null);
       setIsCreatingLedger(false);
@@ -176,6 +189,67 @@ export default function NewEntryScreen() {
     return Number.isNaN(num) ? 0 : Math.abs(num);
   };
 
+  // ✅ Parent ledgers list (real parents only)
+  const parentLedgers = useMemo(() => {
+    return uniqueByName(ledgers.filter((l: Ledger) => !!l.isGroup));
+  }, [ledgers]);
+
+  /**
+   * ✅ NEW: Standard group names from seed ledgers (and user ledgers),
+   * so user can pick "Bank A/c" etc even if it’s not a real parent ledger yet.
+   * We'll auto-create it on Save (your existing logic already does that).
+   */
+  const standardGroupNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of ledgers) {
+      const g = (l.groupName || '').trim();
+      if (!g) continue;
+      // Optional: only show meaningful ones, avoid too generic if you want
+      set.add(g);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [ledgers]);
+
+  const findMatchingParents = (query: string): ParentSuggestion[] => {
+    const q = query.trim().toLowerCase();
+
+    // 1) real parent ledgers (isGroup=true)
+    const real = parentLedgers
+      .filter((l) => {
+        if (!q) return true;
+        return l.name.toLowerCase().includes(q);
+      })
+      .slice(0, 10)
+      .map<ParentSuggestion>((l) => ({ id: l.id, name: l.name, isRealLedger: true }));
+
+    // 2) standard groupName values (from seedLedgers)
+    // Filter groupNames based on query and also try to match current nature for better UX
+    const groupCandidates = standardGroupNames
+      .filter((name) => {
+        if (!q) return true;
+        return name.toLowerCase().includes(q);
+      })
+      .slice(0, 20); // take more, we’ll trim after merge
+
+    // Avoid duplicates: if a real parent ledger already has same name
+    const realNameSet = new Set(real.map((r) => r.name.trim().toLowerCase()));
+    const groupSug: ParentSuggestion[] = groupCandidates
+      .filter((g) => !realNameSet.has(g.trim().toLowerCase()))
+      .map((g) => ({ name: g, isRealLedger: false }));
+
+    // Merge and limit
+    return [...real, ...groupSug].slice(0, 10);
+  };
+
+  const resolveParent = (): Ledger | undefined => {
+    if (parentLedgerId) return ledgers.find((l) => l.id === parentLedgerId);
+    const q = parentQuery.trim().toLowerCase();
+    if (!q) return undefined;
+
+    // match by name for real group ledgers
+    return parentLedgers.find((p) => p.name.trim().toLowerCase() === q);
+  };
+
   // Opening Balance Adjustment ledger finder/creator (async)
   const getOrCreateOpeningLedger = async (): Promise<Ledger> => {
     let opening = ledgers.find(
@@ -188,6 +262,8 @@ export default function NewEntryScreen() {
       groupName: 'Capital & Reserves',
       nature: 'Liability',
       isParty: false,
+      isGroup: false,
+      parentLedgerId: null,
     });
 
     if (!created) {
@@ -200,17 +276,21 @@ export default function NewEntryScreen() {
   const openCreateLedger = (ctx: CreateLedgerContext) => {
     setCreateCtx(ctx);
     setNewLedgerName(ctx.name);
-    setNewLedgerNature('Asset'); // default
+    setNewLedgerNature('Asset');
     setNewLedgerOpeningAmount('');
     setNewLedgerOpeningType('Dr');
 
-    // reset UX status each time modal opens
+    setNewLedgerIsGroup(false);
+    setParentQuery('');
+    setParentLedgerId(undefined);
+    setShowParentSuggestions(true);
+
     setIsCreatingLedger(false);
     setLedgerCreateStage('idle');
   };
 
   const handleCreateLedgerCancel = () => {
-    if (isCreatingLedger) return; // ✅ prevent cancel during processing
+    if (isCreatingLedger) return;
     setCreateCtx(null);
     setIsCreatingLedger(false);
     setLedgerCreateStage('idle');
@@ -218,9 +298,9 @@ export default function NewEntryScreen() {
 
   const handleCreateLedgerSave = async () => {
     if (!createCtx) return;
-    if (isCreatingLedger) return; // ✅ lock multiple taps
+    if (isCreatingLedger) return;
 
-    const ctx = createCtx; // capture current ctx
+    const ctx = createCtx;
     const name = newLedgerName.trim();
     if (!name) {
       Alert.alert('Validation', 'Please enter ledger name.');
@@ -253,11 +333,48 @@ export default function NewEntryScreen() {
       const existing = findExistingByExactName(name);
       if (existing) {
         applyCreatedLedger(existing, ctx);
-
-        // ✅ show done status, then close
         setLedgerCreateStage('done');
         closeCreateLedgerModalAfterDone();
         return;
+      }
+
+      // ✅ If creating a CHILD ledger, ensure it has a parent.
+      // If parent not found but user typed something → auto-create that parent (isGroup=true)
+      let parent: Ledger | undefined = undefined;
+
+      if (!newLedgerIsGroup) {
+        parent = resolveParent();
+
+        if (!parent && parentQuery.trim()) {
+          const parentName = parentQuery.trim();
+          const existingParent = parentLedgers.find(
+            (p) => p.name.trim().toLowerCase() === parentName.toLowerCase(),
+          );
+
+          if (existingParent) {
+            parent = existingParent;
+          } else {
+            const createdParent = await addLedger({
+              name: parentName,
+              groupName,
+              nature,
+              isParty: false,
+              isGroup: true,
+              parentLedgerId: null,
+            });
+            if (createdParent) parent = createdParent;
+          }
+        }
+
+        if (!parent) {
+          setIsCreatingLedger(false);
+          setLedgerCreateStage('idle');
+          Alert.alert(
+            'Validation',
+            'Please select a Parent/Category (or type a parent name to create it).',
+          );
+          return;
+        }
       }
 
       const newLedger = await addLedger({
@@ -265,6 +382,8 @@ export default function NewEntryScreen() {
         groupName,
         nature,
         isParty: nature === 'Asset' || nature === 'Liability',
+        isGroup: newLedgerIsGroup,
+        parentLedgerId: newLedgerIsGroup ? null : parent?.id ?? null,
       });
 
       if (!newLedger) {
@@ -282,7 +401,6 @@ export default function NewEntryScreen() {
           entryType === 'journal' ? journalDate || todayDateStr : todayDateStr;
 
         if (openingType === 'Dr') {
-          // New A/c Dr  To Opening
           await addTransaction({
             date,
             debitLedgerId: newLedger.id,
@@ -292,7 +410,6 @@ export default function NewEntryScreen() {
             voucherType: 'Journal',
           });
         } else {
-          // Opening Dr  To New A/c
           await addTransaction({
             date,
             debitLedgerId: openingLedger.id,
@@ -306,7 +423,6 @@ export default function NewEntryScreen() {
 
       applyCreatedLedger(newLedger, ctx);
 
-      // ✅ show done status, then close
       setLedgerCreateStage('done');
       closeCreateLedgerModalAfterDone();
     } catch (err) {
@@ -366,7 +482,6 @@ export default function NewEntryScreen() {
         return;
       }
 
-      // 🔹 Fixed Cash A/C resolve
       const usedCashLedger = cashLedgers[0];
       if (!usedCashLedger) {
         Alert.alert(
@@ -376,7 +491,6 @@ export default function NewEntryScreen() {
         return;
       }
 
-      // Resolve other ledger
       let usedOtherLedger: Ledger | undefined = undefined;
       if (otherLedgerId) {
         usedOtherLedger = ledgers.find((l) => l.id === otherLedgerId);
@@ -403,7 +517,6 @@ export default function NewEntryScreen() {
         cashDirection === 'out' ? 'Payment' : 'Receipt';
 
       if (cashDirection === 'out') {
-        // Other A/c Dr  To Cash
         await addTransaction({
           date,
           debitLedgerId: usedOtherLedger.id,
@@ -413,7 +526,6 @@ export default function NewEntryScreen() {
           voucherType,
         });
       } else {
-        // Cash Dr  To Other A/c
         await addTransaction({
           date,
           debitLedgerId: usedCashLedger.id,
@@ -528,7 +640,6 @@ export default function NewEntryScreen() {
       const ops: Promise<unknown>[] = [];
 
       if (crResolved.length === 1) {
-        // Many Dr → One Cr
         const cr = crResolved[0];
         if (!cr.ledger) return;
         const crLedger = cr.ledger;
@@ -547,7 +658,6 @@ export default function NewEntryScreen() {
           );
         });
       } else if (drResolved.length === 1) {
-        // One Dr → Many Cr
         const dr = drResolved[0];
         if (!dr.ledger) return;
         const drLedger = dr.ledger;
@@ -616,7 +726,6 @@ export default function NewEntryScreen() {
     <>
       <Stack.Screen options={{ title: 'Add Entry' }} />
 
-      {/* ✅ Keyboard avoid + still scrollable on iOS/Android/Web */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -625,11 +734,7 @@ export default function NewEntryScreen() {
         <View style={{ flex: 1 }}>
           <ScrollView
             style={styles.container}
-            contentContainerStyle={[
-              styles.content,
-              // ✅ extra bottom space so Narration/Save button never stays behind keyboard
-              { paddingBottom: 24 + 220 },
-            ]}
+            contentContainerStyle={[styles.content, { paddingBottom: 24 + 220 }]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
@@ -797,6 +902,85 @@ export default function NewEntryScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                <Text style={[styles.label, { marginTop: 6 }]}>
+                  Create as Parent Category?
+                </Text>
+                <View style={styles.parentRow}>
+                  <Text style={styles.parentHint}>
+                    ON = Parent/Group ledger (roll-up). OFF = Normal ledger inside a parent.
+                  </Text>
+                  <Switch
+                    value={newLedgerIsGroup}
+                    onValueChange={(v) => {
+                      setNewLedgerIsGroup(v);
+                      if (v) {
+                        setParentLedgerId(undefined);
+                        setParentQuery('');
+                      }
+                    }}
+                    disabled={isCreatingLedger || ledgerCreateStage === 'done'}
+                  />
+                </View>
+
+                {/* ✅ Parent selector (child ledgers) */}
+                {!newLedgerIsGroup && (
+                  <>
+                    <Text style={[styles.label, { marginTop: 8 }]}>
+                      Parent / Category
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      value={parentQuery}
+                      placeholder="Search parent (e.g. Bank A/c)"
+                      placeholderTextColor="#999999"
+                      onChangeText={(v) => {
+                        setParentQuery(v);
+                        setParentLedgerId(undefined);
+                        setShowParentSuggestions(true);
+                      }}
+                      editable={!isCreatingLedger && ledgerCreateStage !== 'done'}
+                    />
+
+                    {showParentSuggestions &&
+                      !isCreatingLedger &&
+                      ledgerCreateStage !== 'done' && (
+                        <View style={styles.suggestionBox}>
+                          {findMatchingParents(parentQuery).map((p) => (
+                            <TouchableOpacity
+                              key={p.id ?? `group:${p.name}`}
+                              style={styles.suggestionItem}
+                              onPress={() => {
+                                // ✅ if real ledger parent -> store id
+                                // ✅ if seed groupName -> store only text (id undefined)
+                                setParentLedgerId(p.isRealLedger ? p.id : undefined);
+                                setParentQuery(p.name);
+                                setShowParentSuggestions(false);
+                              }}
+                            >
+                              <Text style={styles.suggestionText}>
+                                {p.name}
+                                {!p.isRealLedger ? (
+                                  <Text style={{ color: COLORS.muted, fontSize: 11 }}>
+                                    {'  '}(standard)
+                                  </Text>
+                                ) : null}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+
+                          {/* If not found → it will be auto-created on Save */}
+                          {parentQuery.trim().length > 0 && !resolveParent() && (
+                            <View style={styles.suggestionItemCreate}>
+                              <Text style={styles.suggestionCreateText}>
+                                Parent "{parentQuery.trim()}" will be created automatically on Save.
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                  </>
+                )}
 
                 <Text style={[styles.label, { marginTop: 8 }]}>
                   Opening Balance (optional)
@@ -996,7 +1180,6 @@ function CashBookForm(props: CashBookProps) {
       <View style={styles.cashCardInner}>
         <Text style={styles.sectionTitle}>Cash Book Entry</Text>
 
-        {/* Date (like Journal) */}
         <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
         <TouchableOpacity
           activeOpacity={0.8}
@@ -1019,7 +1202,6 @@ function CashBookForm(props: CashBookProps) {
           />
         )}
 
-        {/* Cash In / Out buttons */}
         <View style={styles.cashDirRow}>
           <TouchableOpacity
             style={[
@@ -1081,7 +1263,7 @@ function CashBookForm(props: CashBookProps) {
                 onPress={() => {
                   setOtherLedgerId(ledger.id);
                   setOtherLedgerQuery(ledger.name);
-                  setShowSuggestions(false); // ✅ hide after select
+                  setShowSuggestions(false);
                 }}
               >
                 <Text style={styles.suggestionText}>{ledger.name}</Text>
@@ -1443,7 +1625,6 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
 
-  // top "tabs"
   modeRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1473,7 +1654,6 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
 
-  // generic card (journal)
   card: {
     borderRadius: 14,
     borderWidth: 1,
@@ -1481,7 +1661,6 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: '#fdf7fb',
   },
-  // cash card outer like mock
   cashCardOuter: {
     borderRadius: 24,
     borderWidth: 1.2,
@@ -1524,7 +1703,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 
-  // cash direction buttons
   cashDirRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1582,6 +1760,19 @@ const styles = StyleSheet.create({
   smallChipTextSelected: {
     color: COLORS.lightBg,
     fontWeight: '600',
+  },
+
+  parentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 2,
+  },
+  parentHint: {
+    flex: 1,
+    fontSize: 11,
+    color: COLORS.muted,
   },
 
   suggestionBox: {
@@ -1686,7 +1877,6 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
   },
 
-  // Overlay
   overlay: {
     position: 'absolute',
     left: 0,
