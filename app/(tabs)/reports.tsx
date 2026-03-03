@@ -38,25 +38,38 @@ type BsRow = {
   amount: number;
 };
 
-function parseDateSafe(dateStr: string): Date | null {
+function getDateParts(dateStr: string) {
   if (!dateStr) return null;
-  const normalized = dateStr.replace(/\./g, '-').replace(/\//g, '-');
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const normalized = dateStr.split('T')[0].replace(/\./g, '-').replace(/\//g, '-');
+  const parts = normalized.split('-');
+  if (parts.length < 3) return null;
+  
+  return {
+    year: parseInt(parts[0], 10),
+    month: parseInt(parts[1], 10) - 1,
+    day: parseInt(parts[2], 10),
+  };
 }
 
 export default function ReportsScreen() {
   const { ledgers, transactions } = useData();
   const { settings } = useSettings();
-  const t = useT(); // UI Translation hook
+  const t = useT();
   const lang: AppLanguage = (settings.language as AppLanguage) || 'en';
   
   const [mode, setMode] = useState<ReportMode>('overall');
-  const today = useMemo(() => new Date(), []);
+  
+  const today = useMemo(() => {
+    const now = new Date();
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth(),
+    };
+  }, []);
 
   const periodLabel = useMemo(() => {
-    const y = today.getFullYear();
-    const m = `${today.getMonth() + 1}`.padStart(2, '0');
+    const y = today.year;
+    const m = `${today.month + 1}`.padStart(2, '0');
 
     switch (mode) {
       case 'monthly':
@@ -71,11 +84,14 @@ export default function ReportsScreen() {
   const filteredTransactions = useMemo(() => {
     if (mode === 'overall') return transactions;
     return transactions.filter((tx) => {
-      const d = parseDateSafe(tx.date);
-      if (!d) return false;
-      return mode === 'monthly' 
-        ? (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth())
-        : d.getFullYear() === today.getFullYear();
+      const parts = getDateParts(tx.date);
+      if (!parts) return false;
+      if (mode === 'monthly') {
+        return parts.year === today.year && parts.month === today.month;
+      } else if (mode === 'yearly') {
+        return parts.year === today.year;
+      }
+      return true;
     });
   }, [mode, transactions, today]);
 
@@ -85,7 +101,6 @@ export default function ReportsScreen() {
     return map;
   }, [ledgers]);
 
-  // ========== TRIAL BALANCE ==========
   const trialRows: TrialRow[] = useMemo(() => {
     return ledgers.map((l) => {
       let dr = 0, cr = 0;
@@ -93,12 +108,7 @@ export default function ReportsScreen() {
         if (tx.debitLedgerId === l.id) dr += tx.amount;
         if (tx.creditLedgerId === l.id) cr += tx.amount;
       });
-      return { 
-        ledgerId: l.id, 
-        name: getLedgerLabel(l, lang), // Account Name Translated
-        debit: dr, 
-        credit: cr 
-      };
+      return { ledgerId: l.id, name: getLedgerLabel(l, lang), debit: dr, credit: cr };
     }).filter(r => r.debit > 0 || r.credit > 0);
   }, [ledgers, filteredTransactions, lang]);
 
@@ -106,7 +116,6 @@ export default function ReportsScreen() {
     debit: acc.debit + r.debit, credit: acc.credit + r.credit
   }), { debit: 0, credit: 0 }), [trialRows]);
 
-  // ========== P&L ==========
   const { expenseRows, incomeRows, totalExpense, totalIncome, netProfit, netLoss } = useMemo(() => {
     const ex: PlRow[] = [], inc: PlRow[] = [];
     trialRows.forEach(r => {
@@ -125,7 +134,6 @@ export default function ReportsScreen() {
     return { expenseRows: ex, incomeRows: inc, totalExpense: te, totalIncome: ti, netProfit: diff > 0 ? diff : 0, netLoss: diff < 0 ? -diff : 0 };
   }, [trialRows, ledgerMap]);
 
-  // ========== BALANCE SHEET ==========
   const { assetRows, liabilityRows, totalAssets, totalLiabilities } = useMemo(() => {
     const as: BsRow[] = [], li: BsRow[] = [];
     trialRows.forEach(r => {
@@ -196,31 +204,40 @@ export default function ReportsScreen() {
         </View>
       </View>
 
-      {/* P&L */}
+      {/* PROFIT & LOSS */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('reports.pl.title')}</Text>
         <View style={styles.plColumnsRow}>
+          {/* Expenses Column */}
           <View style={styles.plColumn}>
-            <Text style={styles.plColumnTitle}>{t('reports.pl.expenses')}</Text>
-            {expenseRows.map(r => (
-              <View key={r.ledgerId} style={styles.plRow}>
-                <Text style={styles.plName}>{r.name}</Text>
-                <Text style={styles.plAmountRight}>¥{r.amount.toLocaleString()}</Text>
-              </View>
-            ))}
+            <View style={styles.columnContent}>
+              <Text style={styles.plColumnTitle}>{t('reports.pl.expenses')}</Text>
+              {expenseRows.map(r => (
+                <View key={r.ledgerId} style={styles.plRow}>
+                  <Text style={styles.plName}>{r.name}</Text>
+                  <Text style={styles.plAmountRight}>¥{r.amount.toLocaleString()}</Text>
+                </View>
+              ))}
+            </View>
             <View style={styles.plTotalRow}>
               <Text style={styles.plTotalLabel}>{t('reports.pl.totalExpenses')}</Text>
               <Text style={styles.plTotalAmount}>¥{totalExpense.toLocaleString()}</Text>
             </View>
           </View>
+
+          <View style={styles.verticalDivider} />
+
+          {/* Incomes Column */}
           <View style={styles.plColumn}>
-            <Text style={styles.plColumnTitle}>{t('reports.pl.incomes')}</Text>
-            {incomeRows.map(r => (
-              <View key={r.ledgerId} style={styles.plRow}>
-                <Text style={styles.plName}>{r.name}</Text>
-                <Text style={styles.plAmountRight}>¥{r.amount.toLocaleString()}</Text>
-              </View>
-            ))}
+            <View style={styles.columnContent}>
+              <Text style={styles.plColumnTitle}>{t('reports.pl.incomes')}</Text>
+              {incomeRows.map(r => (
+                <View key={r.ledgerId} style={styles.plRow}>
+                  <Text style={styles.plName}>{r.name}</Text>
+                  <Text style={styles.plAmountRight}>¥{r.amount.toLocaleString()}</Text>
+                </View>
+              ))}
+            </View>
             <View style={styles.plTotalRow}>
               <Text style={styles.plTotalLabel}>{t('reports.pl.totalIncomes')}</Text>
               <Text style={styles.plTotalAmount}>¥{totalIncome.toLocaleString()}</Text>
@@ -233,46 +250,40 @@ export default function ReportsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('reports.bs.title')}</Text>
         <View style={styles.bsColumnsRow}>
+          {/* Liabilities Column */}
           <View style={styles.bsColumn}>
-            <Text style={styles.bsColumnTitle}>{t('reports.bs.liabilities')}</Text>
-            {liabilityRows.map(r => (
-              <View key={r.ledgerId} style={styles.bsRow}>
-                <Text style={styles.bsName}>{r.name}</Text>
-                <Text style={styles.bsAmountRight}>¥{r.amount.toLocaleString()}</Text>
-              </View>
-            ))}
+            <View style={styles.columnContent}>
+              <Text style={styles.bsColumnTitle}>{t('reports.bs.liabilities')}</Text>
+              {liabilityRows.map(r => (
+                <View key={r.ledgerId} style={styles.bsRow}>
+                  <Text style={styles.bsName}>{r.name}</Text>
+                  <Text style={styles.bsAmountRight}>¥{r.amount.toLocaleString()}</Text>
+                </View>
+              ))}
+            </View>
             <View style={styles.bsTotalRow}>
               <Text style={styles.bsTotalLabel}>{t('reports.bs.totalLiabilities')}</Text>
               <Text style={styles.bsTotalAmount}>¥{totalLiabilities.toLocaleString()}</Text>
             </View>
           </View>
+
+          <View style={styles.verticalDivider} />
+
+          {/* Assets Column */}
           <View style={styles.bsColumn}>
-            <Text style={styles.bsColumnTitle}>{t('reports.bs.assets')}</Text>
-            {assetRows.map(r => (
-              <View key={r.ledgerId} style={styles.bsRow}>
-                <Text style={styles.bsName}>{r.name}</Text>
-                <Text style={styles.bsAmountRight}>¥{r.amount.toLocaleString()}</Text>
-              </View>
-            ))}
+            <View style={styles.columnContent}>
+              <Text style={styles.bsColumnTitle}>{t('reports.bs.assets')}</Text>
+              {assetRows.map(r => (
+                <View key={r.ledgerId} style={styles.bsRow}>
+                  <Text style={styles.bsName}>{r.name}</Text>
+                  <Text style={styles.bsAmountRight}>¥{r.amount.toLocaleString()}</Text>
+                </View>
+              ))}
+            </View>
             <View style={styles.bsTotalRow}>
               <Text style={styles.bsTotalLabel}>{t('reports.bs.totalAssets')}</Text>
               <Text style={styles.bsTotalAmount}>¥{totalAssets.toLocaleString()}</Text>
             </View>
-          </View>
-        </View>
-      </View>
-
-      {/* PLANNED REPORTS */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('reports.planned.title')}</Text>
-        <View style={styles.reportGrid}>
-          <View style={styles.reportCard}>
-            <Text style={styles.reportTitle}>{t('reports.planned.plTitle')}</Text>
-            <Text style={styles.reportText}>{t('reports.planned.plText')}</Text>
-          </View>
-          <View style={styles.reportCard}>
-            <Text style={styles.reportTitle}>{t('reports.planned.bsTitle')}</Text>
-            <Text style={styles.reportText}>{t('reports.planned.bsText')}</Text>
           </View>
         </View>
       </View>
@@ -302,26 +313,28 @@ const styles = StyleSheet.create({
   totalLabel: { fontWeight: '700' },
   totalAmount: { fontWeight: '700', color: COLORS.primary },
   tableFooterLine: { height: 1, backgroundColor: COLORS.border, marginVertical: 6 },
-  plColumnsRow: { flexDirection: 'row' },
-  plColumn: { flex: 1, marginHorizontal: 4 },
-  plColumnTitle: { fontSize: 13, fontWeight: '600', color: COLORS.muted, marginBottom: 8, borderBottomWidth: 1, borderColor: COLORS.border },
+  
+  // Layout for Two-Column Reports (P&L and Balance Sheet)
+  plColumnsRow: { flexDirection: 'row', minHeight: 100 },
+  bsColumnsRow: { flexDirection: 'row', minHeight: 100 },
+  plColumn: { flex: 1, justifyContent: 'space-between' },
+  bsColumn: { flex: 1, justifyContent: 'space-between' },
+  columnContent: { flex: 1, marginHorizontal: 4 },
+  verticalDivider: { width: 1, backgroundColor: COLORS.border, marginHorizontal: 4 },
+  
+  plColumnTitle: { fontSize: 13, fontWeight: '600', color: COLORS.muted, marginBottom: 8, borderBottomWidth: 1, borderColor: COLORS.border, paddingBottom: 4 },
   plRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   plName: { flex: 1, fontSize: 12, color: COLORS.dark },
   plAmountRight: { textAlign: 'right', fontSize: 12, color: COLORS.dark },
-  plTotalRow: { borderTopWidth: 1, borderColor: COLORS.border, marginTop: 4, paddingTop: 4 },
+  plTotalRow: { borderTopWidth: 1, borderColor: COLORS.border, marginTop: 10, paddingTop: 6, marginHorizontal: 4 },
   plTotalLabel: { fontSize: 12, fontWeight: '600' },
   plTotalAmount: { fontSize: 12, fontWeight: '600' },
-  bsColumnsRow: { flexDirection: 'row' },
-  bsColumn: { flex: 1, marginHorizontal: 4 },
-  bsColumnTitle: { fontSize: 13, fontWeight: '600', color: COLORS.muted, marginBottom: 8, borderBottomWidth: 1, borderColor: COLORS.border },
+
+  bsColumnTitle: { fontSize: 13, fontWeight: '600', color: COLORS.muted, marginBottom: 8, borderBottomWidth: 1, borderColor: COLORS.border, paddingBottom: 4 },
   bsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   bsName: { flex: 1, fontSize: 12, color: COLORS.dark },
   bsAmountRight: { textAlign: 'right', fontSize: 12, color: COLORS.dark },
-  bsTotalRow: { borderTopWidth: 1, borderColor: COLORS.border, marginTop: 4, paddingTop: 4 },
+  bsTotalRow: { borderTopWidth: 1, borderColor: COLORS.border, marginTop: 10, paddingTop: 6, marginHorizontal: 4 },
   bsTotalLabel: { fontSize: 12, fontWeight: '600' },
   bsTotalAmount: { fontSize: 12, fontWeight: '600' },
-  reportGrid: { flexDirection: 'row', justifyContent: 'space-between' },
-  reportCard: { width: '48%', backgroundColor: '#fafafa', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border },
-  reportTitle: { fontSize: 14, fontWeight: '600', color: COLORS.dark },
-  reportText: { fontSize: 11, color: COLORS.muted, marginTop: 4 },
 });
