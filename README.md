@@ -80,7 +80,7 @@
 
 ## 👤 Author
 
-* **ＢＩＫＡＳＨ　ＴＨＡＰＡ** - *Lead Developer & Designer*
+* **ＢＩＫＡＳＨ　ＴＨＡＰＡ** - *Solo Developer & Designer*
 
 ---
 *This project is built for individual / professional financial tracking as for my personal use at first and is currently in its pre-release version.*

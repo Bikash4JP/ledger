@@ -49,3 +49,8 @@ coverage/
 
 expo-env.d.ts
 # @end expo-cli
+
+# Documentation
+TECHNICAL_DOC.md
+docs/
+*.pdf
