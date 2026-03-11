@@ -45,6 +45,7 @@ The app targets individual proprietors, small businesses, and professionals who 
 | **Cash Flow** | Cash and bank movement insights |
 | **Ledger Management** | Create, update, and delete accounts grouped by Nature and Group |
 | **Bilingual UI (EN/JA)** | Full interface and standard account names translated to Japanese |
+| **Currency Selection** | Support for 12 currency display symbols |
 | **PDF Export** | Ledger statements exported as professional PDF files |
 | **Cloud Sync** | Secure login-based backend sync across devices |
 | **Demo Mode** | Unauthenticated users see 56 seed ledgers and sample transactions |
