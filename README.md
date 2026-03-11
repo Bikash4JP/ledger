@@ -474,13 +474,17 @@ npm install
 # 3. Fix any version mismatches
 npx expo install --check
 
-# 4. Configure environment
-cp .env.example .env
-# Edit .env — set EXPO_PUBLIC_API_URL
-
-# 5. Start dev server
+# 4. Start dev server (demo mode works with no .env needed)
 npx expo start -c
 ```
+
+> **Demo Mode (no backend required):** The app launches in demo mode automatically when no user is logged in — with 56 built-in ledger accounts and sample transactions. This is ideal for contributors exploring the UI.
+>
+> **User Mode (cloud sync):** To enable login and data sync, copy `.env.example` to `.env` and set your backend URL:
+> ```bash
+> cp .env.example .env
+> # Edit .env — set EXPO_PUBLIC_API_URL to your backend server
+> ```
 
 ### Running on Device
 
