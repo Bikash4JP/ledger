@@ -2,6 +2,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import { AuthUser, login, signup } from '../../src/api/authClient';
 import { useData } from '../../src/context/AppDataContext';
 import { AuthProfile, useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
+import { CURRENCIES, CurrencyOption, fetchExchangeRate } from '../../src/utils/currency';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -24,17 +26,19 @@ const COLORS = {
   border: '#e0e0e0',
 };
 
-type SettingsSection = 'menu' | 'account' | 'language' | 'about' | 'updates';
+type SettingsSection = 'menu' | 'account' | 'language' | 'currency' | 'about' | 'updates';
 type Language = 'en' | 'ja';
 
-// 🔤 Screen-specific UI text for EN / JA
 const UI_TEXT: Record<Language, any> = {
   en: {
-    menuHint: 'Manage your account, language, app info and updates.',
+    menuHint: 'Manage your account, language, currency, app info and updates.',
     accountTitle: 'Account',
     authTitle: 'Login / Sign up',
     authHint: 'Connect your data to an account',
     languageTitle: 'Language',
+    languageHint: 'Change the display language for this app.',
+    currencyTitle: 'Currency',
+    currencyHint: 'Choose your display currency. Amounts will be converted at today\'s live rate.',
     aboutTitle: 'About',
     aboutSubtitle: 'App info and creator',
     updatesTitle: 'Updates',
@@ -65,13 +69,20 @@ const UI_TEXT: Record<Language, any> = {
     aboutDescription: 'This app is designed and developed by Bikash.\nIt is currently on pre-release version.\nMobiLedger helps you manage your personal and professional transactions, and automatically prepares basic accounting books from your daily entries.',
     currentLangPrefix: 'Current: ',
     untranslatedWarning: 'All content might not be translated into Japanese.',
+    rateLabel: 'Live rate: 1 JPY =',
+    rateLoading: 'Fetching live rate…',
+    homeCurrency: 'Home currency — no conversion needed',
+    rateError: 'Could not fetch rate. Check your internet connection.',
   },
   ja: {
-    menuHint: 'アカウント、言語、アプリ情報、アップデートを管理します。',
+    menuHint: 'アカウント、言語、通貨、アプリ情報、アップデートを管理します。',
     accountTitle: 'アカウント',
     authTitle: 'ログイン / 新規登録',
     authHint: 'データをアカウントに紐付ける',
     languageTitle: '表示言語',
+    languageHint: 'アプリの表示言語を変更します。',
+    currencyTitle: '通貨',
+    currencyHint: '表示通貨を選択してください。金額は当日のリアルタイムレートで換算されます。',
     aboutTitle: 'このアプリについて',
     aboutSubtitle: 'アプリ情報と開発者',
     updatesTitle: 'アップデート',
@@ -102,16 +113,20 @@ const UI_TEXT: Record<Language, any> = {
     aboutDescription: 'このアプリは Bikash によって設計・開発されました。\n現在はプレリリース版です。\nMobiLedgerは個人や仕事の取引管理をサポートし、日々の入力から会計帳簿を自動作成します。',
     currentLangPrefix: '現在の言語: ',
     untranslatedWarning: '一部のコンテンツは日本語に翻訳されていない場合があります。',
+    rateLabel: 'リアルタイムレート: 1 JPY =',
+    rateLoading: '為替レートを取得中…',
+    homeCurrency: 'ホーム通貨 — 換算不要',
+    rateError: 'レートを取得できませんでした。接続を確認してください。',
   }
 };
 
 export default function SettingsScreen() {
-  const { settings, setLanguage, setSyncEmail, setAuthProfile } = useSettings();
+  const { settings, setLanguage, setSyncEmail, setAuthProfile, setCurrency } = useSettings();
   const { reloadFromServer } = useData();
-  const tGlobal = useT(); // From labels.ts
+  const tGlobal = useT();
   const currentLang: Language = settings.language === 'ja' ? 'ja' : 'en';
-  const t = UI_TEXT[currentLang]; // Local translations
-  
+  const t = UI_TEXT[currentLang];
+
   const authProfile = settings.authProfile;
   const isLoggedIn = !!authProfile;
 
@@ -132,6 +147,30 @@ export default function SettingsScreen() {
   const [signupEmailPhone, setSignupEmailPhone] = useState('');
   const [signupUsername, setSignupUsername] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
+
+  // Currency state
+  const [rateLoading, setRateLoading] = useState(false);
+  const [previewRate, setPreviewRate] = useState<number | null>(null);
+  const [previewCurrency, setPreviewCurrency] = useState<CurrencyOption | null>(null);
+
+  const handleSelectCurrency = async (cur: CurrencyOption) => {
+    setCurrency(cur);
+    if (cur.code === 'JPY') {
+      setPreviewRate(null);
+      setPreviewCurrency(null);
+      return;
+    }
+    setPreviewCurrency(cur);
+    setRateLoading(true);
+    setPreviewRate(null);
+    const rate = await fetchExchangeRate('JPY', cur.code);
+    setRateLoading(false);
+    if (rate === 1 && cur.code !== 'JPY') {
+      Alert.alert('', t.rateError);
+    } else {
+      setPreviewRate(rate);
+    }
+  };
 
   const renderLangChip = (value: 'en' | 'ja', label: string) => {
     const selected = currentLang === value;
@@ -235,6 +274,14 @@ export default function SettingsScreen() {
         <Text style={styles.menuArrow}>›</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity style={styles.menuRow} onPress={() => setActiveSection('currency')}>
+        <View>
+          <Text style={styles.menuTitle}>{t.currencyTitle}</Text>
+          <Text style={styles.menuSubtitle}>{settings.currency.symbol} {settings.currency.code} · {currentLang === 'en' ? settings.currency.label : settings.currency.labelJa}</Text>
+        </View>
+        <Text style={styles.menuArrow}>›</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.menuRow} onPress={() => setActiveSection('about')}>
         <View>
           <Text style={styles.menuTitle}>{t.aboutTitle}</Text>
@@ -308,10 +355,60 @@ export default function SettingsScreen() {
         <TouchableOpacity onPress={() => setActiveSection('menu')}><Text style={styles.backText}>{t.back}</Text></TouchableOpacity>
         <Text style={[styles.sectionTitle, { flex: 1 }]}>{t.languageTitle}</Text>
       </View>
-      <Text style={styles.sectionHint}>{tGlobal('tabs.settings')}</Text>
+      <Text style={styles.sectionHint}>{t.languageHint}</Text>
       <View style={styles.langRow}>{renderLangChip('en', 'English')}{renderLangChip('ja', '日本語')}</View>
-      <Text style={styles.currentLangText}>{currentLang === 'en' ? tGlobal('tabs.settings') : tGlobal('tabs.settings')}</Text>
+      <Text style={styles.currentLangText}>{t.currentLangPrefix}{currentLang === 'en' ? 'English' : '日本語'}</Text>
       {currentLang === 'ja' && <Text style={[styles.infoText, { marginTop: 6 }]}>{t.untranslatedWarning}</Text>}
+    </View>
+  );
+
+  const renderCurrency = () => (
+    <View style={styles.card}>
+      <View style={styles.sectionHeaderRow}>
+        <TouchableOpacity onPress={() => setActiveSection('menu')}><Text style={styles.backText}>{t.back}</Text></TouchableOpacity>
+        <Text style={[styles.sectionTitle, { flex: 1 }]}>{t.currencyTitle}</Text>
+      </View>
+      <Text style={styles.sectionHint}>{t.currencyHint}</Text>
+
+      {/* Rate badge */}
+      {rateLoading && (
+        <View style={styles.rateBadge}>
+          <ActivityIndicator size="small" color={COLORS.primary} />
+          <Text style={styles.rateText}>{t.rateLoading}</Text>
+        </View>
+      )}
+      {!rateLoading && previewRate !== null && previewCurrency && (
+        <View style={styles.rateBadge}>
+          <Text style={styles.rateText}>
+            {t.rateLabel} {previewRate.toFixed(6)} {previewCurrency.symbol} ({previewCurrency.code})
+          </Text>
+        </View>
+      )}
+      {!rateLoading && settings.currency.code === 'JPY' && (
+        <View style={[styles.rateBadge, { backgroundColor: '#f0f9f0' }]}>
+          <Text style={[styles.rateText, { color: '#2e7d32' }]}>{t.homeCurrency}</Text>
+        </View>
+      )}
+
+      {/* Currency list */}
+      {CURRENCIES.map((cur) => {
+        const selected = settings.currency.code === cur.code;
+        return (
+          <TouchableOpacity
+            key={cur.code}
+            style={[styles.currencyRow, selected && styles.currencyRowSelected]}
+            onPress={() => handleSelectCurrency(cur)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.currencySymbol}>{cur.symbol}</Text>
+            <View style={styles.currencyInfo}>
+              <Text style={[styles.currencyCode, selected && styles.currencyCodeSelected]}>{cur.code}</Text>
+              <Text style={styles.currencyLabel}>{currentLang === 'en' ? cur.label : cur.labelJa}</Text>
+            </View>
+            {selected && <Text style={styles.currencyCheck}>✓</Text>}
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 
@@ -340,11 +437,12 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>{tGlobal('tabs.settings')}</Text>
-        <Text style={styles.subtitle}>{tGlobal('tabs.settings')}</Text>
+        <Text style={styles.subtitle}>{t.menuHint}</Text>
       </View>
       {activeSection === 'menu' && renderMenu()}
       {activeSection === 'account' && renderAccount()}
       {activeSection === 'language' && renderLanguage()}
+      {activeSection === 'currency' && renderCurrency()}
       {activeSection === 'about' && renderAbout()}
       {activeSection === 'updates' && renderUpdates()}
     </ScrollView>
@@ -384,4 +482,15 @@ const styles = StyleSheet.create({
   authTabActive: { backgroundColor: COLORS.primary },
   authTabText: { fontSize: 12, color: COLORS.dark },
   authTabTextActive: { color: '#fff', fontWeight: '600' },
+  // Currency styles
+  rateBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f5f0fb', borderRadius: 8, padding: 8, marginBottom: 10 },
+  rateText: { fontSize: 12, color: COLORS.primary, fontWeight: '500', flexShrink: 1 },
+  currencyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: 'transparent' },
+  currencyRowSelected: { backgroundColor: '#fdf0f9', borderColor: COLORS.primary },
+  currencySymbol: { fontSize: 20, width: 36, textAlign: 'center', color: COLORS.dark },
+  currencyInfo: { flex: 1, marginLeft: 8 },
+  currencyCode: { fontSize: 14, fontWeight: '600', color: COLORS.dark },
+  currencyCodeSelected: { color: COLORS.primary },
+  currencyLabel: { fontSize: 11, color: COLORS.muted, marginTop: 1 },
+  currencyCheck: { fontSize: 16, color: COLORS.primary, fontWeight: '700' },
 });

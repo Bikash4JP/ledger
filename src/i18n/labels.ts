@@ -65,6 +65,14 @@ const en = {
   'reports.planned.plText': 'More detailed P&L formats with schedules (Sales, Purchases, etc).',
   'reports.planned.bsTitle': 'Balance Sheet',
   'reports.planned.bsText': 'Assets / Liabilities / Capital with schedules.',
+
+  // Settings - Currency
+  'settings.currency.title': 'Currency',
+  'settings.currency.subtitle': 'Display currency & live exchange rate',
+  'settings.currency.rate': 'Live rate',
+  'settings.currency.approx': 'Amounts are approximate conversions',
+  'settings.currency.loading': 'Fetching exchange rate…',
+  'settings.currency.home': 'Home currency (JPY) — no conversion',
 };
 
 const ja: typeof en = {
@@ -131,6 +139,14 @@ const ja: typeof en = {
   'reports.planned.plText': '売上や仕入などの内訳を含む詳細な損益計算書。',
   'reports.planned.bsTitle': '貸借対照表',
   'reports.planned.bsText': '資産・負債・資本の内訳明細付き貸借対照表。',
+
+  // Settings - Currency
+  'settings.currency.title': '通貨',
+  'settings.currency.subtitle': '表示通貨・リアルタイム為替換算',
+  'settings.currency.rate': 'リアルタイムレート',
+  'settings.currency.approx': '金額は概算換算値です',
+  'settings.currency.loading': '為替レートを取得中…',
+  'settings.currency.home': 'ホーム通貨 (JPY) — 換算なし',
 };
 
 export type LabelKey = keyof typeof en;

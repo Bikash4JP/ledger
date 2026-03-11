@@ -9,6 +9,7 @@ import React, {
   useState,
 } from 'react';
 import { setCurrentUserEmail } from '../config/userIdentity';
+import { CurrencyOption, DEFAULT_CURRENCY } from '../utils/currency';
 
 export type AppLanguage = 'en' | 'ja';
 
@@ -24,6 +25,7 @@ type Settings = {
   language: AppLanguage;
   syncEmail: string | null;
   authProfile: AuthProfile | null;
+  currency: CurrencyOption;
 };
 
 type SettingsContextValue = {
@@ -31,6 +33,7 @@ type SettingsContextValue = {
   setLanguage: (lang: AppLanguage) => void;
   setSyncEmail: (email: string | null) => void;
   setAuthProfile: (profile: AuthProfile | null) => void;
+  setCurrency: (currency: CurrencyOption) => void;
 };
 
 const STORAGE_KEY = '@ledger_settings_v2';
@@ -39,6 +42,7 @@ const defaultSettings: Settings = {
   language: 'en',
   syncEmail: null,
   authProfile: null,
+  currency: DEFAULT_CURRENCY,
 };
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -58,7 +62,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(raw);
           const next: Settings = { ...defaultSettings, ...parsed };
           setSettings(next);
-          // global email helper: API headers ke liye
           const email =
             next.authProfile?.email ??
             next.syncEmail ??
@@ -94,12 +97,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const setSyncEmail = (email: string | null) => {
     setSettings((prev) => {
-      const next: Settings = {
-        ...prev,
-        syncEmail: email,
-      };
+      const next: Settings = { ...prev, syncEmail: email };
       void saveSettings(next);
-      // agar authProfile nahi hai to bhi header email set kar sakte
       const effectiveEmail =
         next.authProfile?.email ?? next.syncEmail ?? null;
       setCurrentUserEmail(effectiveEmail);
@@ -112,7 +111,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const next: Settings = {
         ...prev,
         authProfile: profile,
-        // agar profile null hai to syncEmail ko as-is rehne do
         syncEmail: profile?.email ?? prev.syncEmail ?? null,
       };
       void saveSettings(next);
@@ -123,18 +121,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setCurrency = (currency: CurrencyOption) => {
+    setSettings((prev) => {
+      const next: Settings = { ...prev, currency };
+      void saveSettings(next);
+      return next;
+    });
+  };
+
   const value = useMemo(
     () => ({
       settings,
       setLanguage,
       setSyncEmail,
       setAuthProfile,
+      setCurrency,
     }),
     [settings],
   );
 
   if (!hydrated) {
-    // Simple splash; chaho to yahan loader bhi dikha sakte ho
     return <>{children}</>;
   }
 
@@ -149,22 +155,15 @@ export function useSettings(): SettingsContextValue {
   const ctx = useContext(SettingsContext);
 
   if (!ctx) {
-    // ❗ Pehle yahan error throw ho raha tha, ab sirf warning + safe default
     console.warn(
-      '[SettingsContext] useSettings called outside SettingsProvider. Using default settings (non-persistent).',
+      '[SettingsContext] useSettings called outside SettingsProvider. Using default settings.',
     );
-
     return {
       settings: defaultSettings,
-      setLanguage: () => {
-        /* noop */
-      },
-      setSyncEmail: () => {
-        /* noop */
-      },
-      setAuthProfile: () => {
-        /* noop */
-      },
+      setLanguage: () => {},
+      setSyncEmail: () => {},
+      setAuthProfile: () => {},
+      setCurrency: () => {},
     };
   }
 

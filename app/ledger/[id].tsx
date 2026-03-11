@@ -2,6 +2,7 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -24,6 +25,7 @@ import { useSettings } from '../../src/context/SettingsContext';
 import type { Ledger } from '../../src/models/ledger';
 import type { Transaction } from '../../src/models/transaction';
 import { AppLanguage, getGroupLabel, getLedgerLabel, getNatureLabel } from '../../src/utils/ledgerLabels';
+import { fetchExchangeRate } from '../../src/utils/currency';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -159,9 +161,11 @@ function formatNumberWithOptionalDecimals(value: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function formatAmount(value: number): string {
-  if (!value) return '¥0';
-  return `¥${formatNumberWithOptionalDecimals(Math.abs(value))}`;
+/** Format an amount with a dynamic currency symbol (and ~ prefix if converted). */
+function formatAmount(value: number, symbol: string, isConverted = false): string {
+  if (!value) return `${symbol}0`;
+  const prefix = isConverted ? '~' : '';
+  return `${prefix}${symbol}${formatNumberWithOptionalDecimals(Math.abs(value))}`;
 }
 
 function parseDateString(value: string): Date {
@@ -192,6 +196,27 @@ export default function LedgerDetailScreen() {
   const { settings } = useSettings();
   const language: Language = settings.language === 'ja' ? 'ja' : 'en';
   const t = UI_TEXT[language];
+  const currency = settings.currency;
+
+  // Exchange rate for ledger statement display
+  const [exchangeRate, setExchangeRate] = React.useState<number>(1);
+  const [rateLoading, setRateLoading] = React.useState(false);
+  const lastFetchedCode = React.useRef<string>('JPY');
+
+  React.useEffect(() => {
+    if (currency.code === 'JPY') { setExchangeRate(1); lastFetchedCode.current = 'JPY'; return; }
+    if (lastFetchedCode.current === currency.code) return;
+    setRateLoading(true);
+    fetchExchangeRate('JPY', currency.code).then((rate) => {
+      setExchangeRate(rate);
+      lastFetchedCode.current = currency.code;
+      setRateLoading(false);
+    });
+  }, [currency.code]);
+
+  const isConverted = currency.code !== 'JPY';
+  const sym = currency.symbol;
+  const fmtAmt = (v: number) => formatAmount(v * exchangeRate, sym, isConverted);
 
   const ledger = useMemo(
     () => ledgers.find((l: Ledger) => l.id === id),
@@ -391,7 +416,7 @@ export default function LedgerDetailScreen() {
   const closingBalanceText =
     closingBalanceValue === 0
       ? '0'
-      : `${formatAmount(Math.abs(closingBalanceValue))} ${closingBalanceValue > 0 ? t.dr : t.cr}`;
+      : `${fmtAmt(Math.abs(closingBalanceValue))} ${closingBalanceValue > 0 ? t.dr : t.cr}`;
 
   const handleSaveMaster = async () => {
     const name = editName.trim();
@@ -569,6 +594,16 @@ export default function LedgerDetailScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Currency rate badge */}
+        {isConverted && (
+          <View style={styles.rateBadge}>
+            {rateLoading
+              ? <ActivityIndicator size="small" color="#ac0c79" />
+              : <Text style={styles.rateText}>~{sym} · 1 JPY = {exchangeRate.toFixed(6)} {currency.code}</Text>
+            }
+          </View>
+        )}
 
         <View style={styles.filterCard}>
           <Text style={styles.filterTitle}>{t.period}</Text>
@@ -788,6 +823,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.dark },
   container: { flex: 1, backgroundColor: COLORS.lightBg },
   content: { padding: 16, paddingBottom: 24 },
+  rateBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f5f0fb', borderRadius: 8, padding: 8, marginBottom: 8 },
+  rateText: { fontSize: 11, color: '#ac0c79', fontWeight: '500', flexShrink: 1 },
 
   notFoundContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
   notFoundText: { fontSize: 14, color: COLORS.muted, marginBottom: 12 },
