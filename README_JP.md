@@ -494,13 +494,18 @@ npx expo start -c
 
 ## 15. 環境変数
 
-プロジェクトのルートに `.env` ファイルを作成してください：
+リポジトリには公開テンプレートとして `.env.example` が含まれています。**実際の値をREADMEや `.env.example` に記載しないでください。**
 
-```env
-EXPO_PUBLIC_API_URL=https://your-backend-url.com
+```bash
+# テンプレートをコピーして実際の値を入力
+cp .env.example .env
 ```
 
-> **重要:** `EXPO_PUBLIC_` プレフィックスは、Expo がクライアントバンドルに変数を公開するために必要です。シークレットや秘密鍵はこのファイルにコミットしないでください。
+| 変数名 | 説明 |
+|---|---|
+| `EXPO_PUBLIC_API_URL` | MobiLedger バックエンドのベースURL（末尾のスラッシュなし） |
+
+> **重要:** `.env` は `.gitignore` に登録されており、**絶対にコミットしないでください**。`EXPO_PUBLIC_` プレフィックスは Expo がクライアントバンドルに変数を公開するために必要です。実際のAPIのURLは非公開にしてください。
 
 また、`app.json` 内で（`expo-build-properties` 経由で）Android の `usesCleartextTraffic: true` を設定しており、開発中のHTTP通信を許可しています。
 

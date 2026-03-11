@@ -494,13 +494,18 @@ npx expo start -c
 
 ## 15. Environment Variables
 
-Create a `.env` file in the project root:
+A `.env.example` file is included in the repo as a public template. **Never put real values in the README or `.env.example`.**
 
-```env
-EXPO_PUBLIC_API_URL=https://your-backend-url.com
+```bash
+# Copy the template and fill in your real values
+cp .env.example .env
 ```
 
-> **Important:** The `EXPO_PUBLIC_` prefix is required by Expo to expose the variable to the client bundle. Never commit secrets or private keys to this file.
+| Variable | Description |
+|---|---|
+| `EXPO_PUBLIC_API_URL` | Base URL of your MobiLedger backend (no trailing slash) |
+
+> **Important:** `.env` is listed in `.gitignore` and must **never** be committed. The `EXPO_PUBLIC_` prefix is required by Expo to expose the variable to the client bundle. Keep your real API URL private.
 
 The app also sets `usesCleartextTraffic: true` for Android in `app.json` (via `expo-build-properties`) to allow plain HTTP communication during development.
 
