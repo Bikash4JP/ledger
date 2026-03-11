@@ -11,10 +11,10 @@ import {
 
 /**
  * Backend-based storage implementation.
- * Yahan se saare data calls Node/Postgres backend pe jaayenge.
+ * All data calls go through the Node/Postgres backend.
  */
 export const apiStorage: IStorage = {
-  // App load hone par initial data
+  // Load initial data on app start
   async loadInitialData(): Promise<{
     ledgers: Ledger[];
     transactions: Transaction[];
@@ -30,7 +30,7 @@ export const apiStorage: IStorage = {
     return { ledgers, transactions };
   },
 
-  // Naya ledger create
+  // Create a new ledger
   async createLedger(input: {
     name: string;
     groupName: string;
@@ -41,7 +41,7 @@ export const apiStorage: IStorage = {
     return created as Ledger;
   },
 
-  // Naya entry (voucher) create
+  // Create a new entry (voucher)
   async createEntry(input: EntryInput): Promise<{
     ledgers: Ledger[];
     transactions: Transaction[];
@@ -54,7 +54,7 @@ export const apiStorage: IStorage = {
       lines: input.lines,
     });
 
-    // 2) fresh data reload karo (simple & safe)
+    // 2) Reload fresh data (simple and safe)
     const [ledgersRaw, transactionsRaw] = await Promise.all([
       apiGetLedgers(),
       apiGetTransactions(),

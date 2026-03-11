@@ -18,7 +18,7 @@ export type EntryInput = {
 };
 
 /**
- * ✅ Ledger create/update payload
+ * Ledger create/update payload
  * (Front-end -> Backend)
  */
 export type LedgerInput = {
@@ -27,7 +27,13 @@ export type LedgerInput = {
   nature: Ledger['nature'];
   isParty?: boolean;
 
-  // ✅ NEW: parent category support
   isGroup?: boolean;
   parentLedgerId?: string | null;
+};
+
+/** Storage adapter interface */
+export type IStorage = {
+  loadInitialData(): Promise<{ ledgers: Ledger[]; transactions: import('../models/transaction').Transaction[] }>;
+  createLedger(input: LedgerInput): Promise<Ledger>;
+  createEntry(input: EntryInput): Promise<{ ledgers: Ledger[]; transactions: import('../models/transaction').Transaction[] }>;
 };

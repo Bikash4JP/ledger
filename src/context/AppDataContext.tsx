@@ -158,7 +158,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return normalized;
     } catch (err) {
       console.warn('Failed to create ledger on backend', err);
-      return null;
+      throw err; // ✅ re-throw so UI can show an error alert to the user
     }
   };
 
@@ -267,6 +267,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setTransactions(nextTx);
     } catch (err) {
       console.warn('Failed to create entry on backend', err);
+      throw err; // ✅ re-throw so UI can show an error alert to the user
     }
   };
 
