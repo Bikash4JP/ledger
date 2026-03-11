@@ -15,7 +15,7 @@ import { AuthUser, login, signup } from '../../src/api/authClient';
 import { useData } from '../../src/context/AppDataContext';
 import { AuthProfile, useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
-import { CURRENCIES, CurrencyOption, fetchExchangeRate } from '../../src/utils/currency';
+import { CURRENCIES, CurrencyOption } from '../../src/utils/currency';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -38,7 +38,7 @@ const UI_TEXT: Record<Language, any> = {
     languageTitle: 'Language',
     languageHint: 'Change the display language for this app.',
     currencyTitle: 'Currency',
-    currencyHint: 'Choose your display currency. Amounts will be converted at today\'s live rate.',
+    currencyHint: 'Choose your display currency symbol.',
     aboutTitle: 'About',
     aboutSubtitle: 'App info and creator',
     updatesTitle: 'Updates',
@@ -69,10 +69,6 @@ const UI_TEXT: Record<Language, any> = {
     aboutDescription: 'This app is designed and developed by Bikash.\nIt is currently on pre-release version.\nMobiLedger helps you manage your personal and professional transactions, and automatically prepares basic accounting books from your daily entries.',
     currentLangPrefix: 'Current: ',
     untranslatedWarning: 'All content might not be translated into Japanese.',
-    rateLabel: 'Live rate: 1 JPY =',
-    rateLoading: 'Fetching live rate…',
-    homeCurrency: 'Home currency — no conversion needed',
-    rateError: 'Could not fetch rate. Check your internet connection.',
   },
   ja: {
     menuHint: 'アカウント、言語、通貨、アプリ情報、アップデートを管理します。',
@@ -82,7 +78,7 @@ const UI_TEXT: Record<Language, any> = {
     languageTitle: '表示言語',
     languageHint: 'アプリの表示言語を変更します。',
     currencyTitle: '通貨',
-    currencyHint: '表示通貨を選択してください。金額は当日のリアルタイムレートで換算されます。',
+    currencyHint: '表示する通貨記号を選択してください。',
     aboutTitle: 'このアプリについて',
     aboutSubtitle: 'アプリ情報と開発者',
     updatesTitle: 'アップデート',
@@ -113,10 +109,6 @@ const UI_TEXT: Record<Language, any> = {
     aboutDescription: 'このアプリは Bikash によって設計・開発されました。\n現在はプレリリース版です。\nMobiLedgerは個人や仕事の取引管理をサポートし、日々の入力から会計帳簿を自動作成します。',
     currentLangPrefix: '現在の言語: ',
     untranslatedWarning: '一部のコンテンツは日本語に翻訳されていない場合があります。',
-    rateLabel: 'リアルタイムレート: 1 JPY =',
-    rateLoading: '為替レートを取得中…',
-    homeCurrency: 'ホーム通貨 — 換算不要',
-    rateError: 'レートを取得できませんでした。接続を確認してください。',
   }
 };
 
@@ -148,28 +140,8 @@ export default function SettingsScreen() {
   const [signupUsername, setSignupUsername] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
 
-  // Currency state
-  const [rateLoading, setRateLoading] = useState(false);
-  const [previewRate, setPreviewRate] = useState<number | null>(null);
-  const [previewCurrency, setPreviewCurrency] = useState<CurrencyOption | null>(null);
-
-  const handleSelectCurrency = async (cur: CurrencyOption) => {
+  const handleSelectCurrency = (cur: CurrencyOption) => {
     setCurrency(cur);
-    if (cur.code === 'JPY') {
-      setPreviewRate(null);
-      setPreviewCurrency(null);
-      return;
-    }
-    setPreviewCurrency(cur);
-    setRateLoading(true);
-    setPreviewRate(null);
-    const rate = await fetchExchangeRate('JPY', cur.code);
-    setRateLoading(false);
-    if (rate === 1 && cur.code !== 'JPY') {
-      Alert.alert('', t.rateError);
-    } else {
-      setPreviewRate(rate);
-    }
   };
 
   const renderLangChip = (value: 'en' | 'ja', label: string) => {
@@ -370,26 +342,6 @@ export default function SettingsScreen() {
       </View>
       <Text style={styles.sectionHint}>{t.currencyHint}</Text>
 
-      {/* Rate badge */}
-      {rateLoading && (
-        <View style={styles.rateBadge}>
-          <ActivityIndicator size="small" color={COLORS.primary} />
-          <Text style={styles.rateText}>{t.rateLoading}</Text>
-        </View>
-      )}
-      {!rateLoading && previewRate !== null && previewCurrency && (
-        <View style={styles.rateBadge}>
-          <Text style={styles.rateText}>
-            {t.rateLabel} {previewRate.toFixed(6)} {previewCurrency.symbol} ({previewCurrency.code})
-          </Text>
-        </View>
-      )}
-      {!rateLoading && settings.currency.code === 'JPY' && (
-        <View style={[styles.rateBadge, { backgroundColor: '#f0f9f0' }]}>
-          <Text style={[styles.rateText, { color: '#2e7d32' }]}>{t.homeCurrency}</Text>
-        </View>
-      )}
-
       {/* Currency list */}
       {CURRENCIES.map((cur) => {
         const selected = settings.currency.code === cur.code;
@@ -483,8 +435,6 @@ const styles = StyleSheet.create({
   authTabText: { fontSize: 12, color: COLORS.dark },
   authTabTextActive: { color: '#fff', fontWeight: '600' },
   // Currency styles
-  rateBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f5f0fb', borderRadius: 8, padding: 8, marginBottom: 10 },
-  rateText: { fontSize: 12, color: COLORS.primary, fontWeight: '500', flexShrink: 1 },
   currencyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: 'transparent' },
   currencyRowSelected: { backgroundColor: '#fdf0f9', borderColor: COLORS.primary },
   currencySymbol: { fontSize: 20, width: 36, textAlign: 'center', color: COLORS.dark },

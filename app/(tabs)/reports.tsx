@@ -5,7 +5,6 @@ import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
 import { AppLanguage, getLedgerLabel } from '../../src/utils/ledgerLabels';
-import { fetchExchangeRate } from '../../src/utils/currency';
 
 import type { Ledger } from '../../src/models/ledger';
 
@@ -42,35 +41,11 @@ export default function ReportsScreen() {
   const t = useT();
   const lang: AppLanguage = (settings.language as AppLanguage) || 'en';
   const currency = settings.currency;
-
-  // ── Exchange rate ────────────────────────────────────────────
-  const [exchangeRate, setExchangeRate] = useState<number>(1);
-  const [rateLoading, setRateLoading] = useState(false);
-  const lastFetchedCode = useRef<string>('JPY');
-
-  useEffect(() => {
-    if (currency.code === 'JPY') {
-      setExchangeRate(1);
-      lastFetchedCode.current = 'JPY';
-      return;
-    }
-    if (lastFetchedCode.current === currency.code) return;
-    setRateLoading(true);
-    fetchExchangeRate('JPY', currency.code).then((rate) => {
-      setExchangeRate(rate);
-      lastFetchedCode.current = currency.code;
-      setRateLoading(false);
-    });
-  }, [currency.code]);
-
-  const isConverted = currency.code !== 'JPY';
   const sym = currency.symbol;
 
-  /** Format amount with the selected currency symbol. Adds ~ prefix when converted. */
+  /** Format amount with the selected currency symbol. */
   const fmt = (amount: number) => {
-    const converted = amount * exchangeRate;
-    const prefix = isConverted ? '~' : '';
-    return `${prefix}${sym}${converted.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    return `${sym}${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   };
 
   // ── Period filter ────────────────────────────────────────────
@@ -181,19 +156,6 @@ export default function ReportsScreen() {
           <Text style={styles.periodLabel}>{periodLabel}</Text>
         </View>
       </View>
-
-      {/* Currency rate badge */}
-      {isConverted && (
-        <View style={styles.rateBadge}>
-          {rateLoading ? (
-            <><ActivityIndicator size="small" color={COLORS.primary} /><Text style={styles.rateText}> {t('settings.currency.loading')}</Text></>
-          ) : (
-            <Text style={styles.rateText}>
-              {t('settings.currency.rate')}: 1 JPY = {exchangeRate.toFixed(6)} {sym} ({currency.code}) · {t('settings.currency.approx')}
-            </Text>
-          )}
-        </View>
-      )}
 
       <View style={styles.modesRow}>
         {renderModeTag('overall', t('reports.modes.overall'))}
@@ -319,8 +281,6 @@ const styles = StyleSheet.create({
   modeChipSelected: { backgroundColor: COLORS.primary },
   modeChipText: { fontSize: 13, color: COLORS.dark },
   modeChipTextSelected: { color: COLORS.lightBg, fontWeight: '600' },
-  rateBadge: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', backgroundColor: '#f5f0fb', borderRadius: 8, padding: 8, marginBottom: 12, gap: 6 },
-  rateText: { fontSize: 11, color: COLORS.primary, fontWeight: '500', flexShrink: 1 },
   section: { marginBottom: 30, backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: COLORS.border },
   sectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.dark, marginBottom: 12 },
   tableHeader: { flexDirection: 'row', borderBottomWidth: 2, borderColor: COLORS.border, paddingBottom: 6, marginBottom: 6 },

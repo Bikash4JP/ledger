@@ -26,38 +26,16 @@ export const CURRENCIES: CurrencyOption[] = [
 export const DEFAULT_CURRENCY: CurrencyOption = CURRENCIES[0]; // JPY
 
 /**
- * Fetch today's exchange rate using the free Frankfurter API.
- * Returns a multiplier: original_amount * rate = converted_amount
- * Returns 1 if from === to or if fetching fails.
- */
-export async function fetchExchangeRate(from: string, to: string): Promise<number> {
-  if (from === to) return 1;
-  try {
-    const res = await fetch(
-      `https://api.frankfurter.app/latest?from=${from}&to=${to}`,
-    );
-    if (!res.ok) return 1;
-    const data = await res.json() as { rates?: Record<string, number> };
-    return data?.rates?.[to] ?? 1;
-  } catch {
-    return 1;
-  }
-}
-
-/**
  * Format an amount with currency symbol.
- * If isConverted is true, prepends ~ to indicate approximate conversion.
  */
 export function formatWithCurrency(
   amount: number,
   symbol: string,
-  isConverted = false,
 ): string {
   if (!amount && amount !== 0) return `${symbol}0`;
-  const prefix = isConverted ? '~' : '';
   const formatted = Math.abs(amount).toLocaleString(undefined, {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
   });
-  return `${prefix}${symbol}${formatted}`;
+  return `${symbol}${formatted}`;
 }

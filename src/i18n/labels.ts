@@ -68,11 +68,7 @@ const en = {
 
   // Settings - Currency
   'settings.currency.title': 'Currency',
-  'settings.currency.subtitle': 'Display currency & live exchange rate',
-  'settings.currency.rate': 'Live rate',
-  'settings.currency.approx': 'Amounts are approximate conversions',
-  'settings.currency.loading': 'Fetching exchange rate…',
-  'settings.currency.home': 'Home currency (JPY) — no conversion',
+  'settings.currency.subtitle': 'Display currency symbol',
 };
 
 const ja: typeof en = {
@@ -142,11 +138,7 @@ const ja: typeof en = {
 
   // Settings - Currency
   'settings.currency.title': '通貨',
-  'settings.currency.subtitle': '表示通貨・リアルタイム為替換算',
-  'settings.currency.rate': 'リアルタイムレート',
-  'settings.currency.approx': '金額は概算換算値です',
-  'settings.currency.loading': '為替レートを取得中…',
-  'settings.currency.home': 'ホーム通貨 (JPY) — 換算なし',
+  'settings.currency.subtitle': '表示する通貨記号',
 };
 
 export type LabelKey = keyof typeof en;
