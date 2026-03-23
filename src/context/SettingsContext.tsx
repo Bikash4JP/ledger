@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { setCurrentUserEmail } from '../config/userIdentity';
 import { CurrencyOption, DEFAULT_CURRENCY } from '../utils/currency';
+import type { Theme } from '../utils/theme';
 
 export type AppLanguage = 'en' | 'ja';
 
@@ -26,6 +27,7 @@ type Settings = {
   syncEmail: string | null;
   authProfile: AuthProfile | null;
   currency: CurrencyOption;
+  theme: Theme;
 };
 
 type SettingsContextValue = {
@@ -34,6 +36,7 @@ type SettingsContextValue = {
   setSyncEmail: (email: string | null) => void;
   setAuthProfile: (profile: AuthProfile | null) => void;
   setCurrency: (currency: CurrencyOption) => void;
+  setTheme: (theme: Theme) => void;
 };
 
 const STORAGE_KEY = '@ledger_settings_v2';
@@ -43,6 +46,7 @@ const defaultSettings: Settings = {
   syncEmail: null,
   authProfile: null,
   currency: DEFAULT_CURRENCY,
+  theme: 'light',
 };
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -129,6 +133,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setTheme = (theme: Theme) => {
+    setSettings((prev) => {
+      const next: Settings = { ...prev, theme };
+      void saveSettings(next);
+      return next;
+    });
+  };
+
   const value = useMemo(
     () => ({
       settings,
@@ -136,6 +148,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setSyncEmail,
       setAuthProfile,
       setCurrency,
+      setTheme,
     }),
     [settings],
   );
@@ -164,6 +177,7 @@ export function useSettings(): SettingsContextValue {
       setSyncEmail: () => {},
       setAuthProfile: () => {},
       setCurrency: () => {},
+      setTheme: () => {},
     };
   }
 

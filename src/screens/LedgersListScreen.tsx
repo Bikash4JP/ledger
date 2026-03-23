@@ -10,22 +10,16 @@ import {
 } from 'react-native';
 import { useData } from '../context/AppDataContext';
 import { useSettings } from '../context/SettingsContext';
+import { useTheme } from '../utils/theme';
 import type { Ledger } from '../models/ledger';
 import type { Transaction } from '../models/transaction';
 import { AppLanguage, getGroupLabel, getLedgerLabel, getNatureLabel } from '../utils/ledgerLabels';
-
-const COLORS = {
-  primary: '#ac0c79',
-  dark: '#121212',
-  lightBg: '#ffffff',
-  muted: '#777777',
-  border: '#e0e0e0',
-};
 
 export default function LedgersListScreen() {
   const router = useRouter();
   const { ledgers, transactions } = useData();
   const { settings } = useSettings();
+  const C = useTheme();
   const lang = (settings.language as AppLanguage) || 'en';
   const [search, setSearch] = useState('');
 
@@ -34,20 +28,11 @@ export default function LedgersListScreen() {
     const ordered: string[] = [];
     const txs = [...transactions].reverse();
     txs.forEach((t: Transaction) => {
-      if (!seen.has(t.debitLedgerId)) {
-        seen.add(t.debitLedgerId);
-        ordered.push(t.debitLedgerId);
-      }
-      if (!seen.has(t.creditLedgerId)) {
-        seen.add(t.creditLedgerId);
-        ordered.push(t.creditLedgerId);
-      }
+      if (!seen.has(t.debitLedgerId)) { seen.add(t.debitLedgerId); ordered.push(t.debitLedgerId); }
+      if (!seen.has(t.creditLedgerId)) { seen.add(t.creditLedgerId); ordered.push(t.creditLedgerId); }
     });
     const result: Ledger[] = [];
-    ordered.forEach((id) => {
-      const l = ledgers.find((x) => x.id === id);
-      if (l) result.push(l);
-    });
+    ordered.forEach((id) => { const l = ledgers.find((x) => x.id === id); if (l) result.push(l); });
     return result.slice(0, 8);
   }, [ledgers, transactions]);
 
@@ -62,23 +47,20 @@ export default function LedgersListScreen() {
   }, [ledgers, search, lang]);
 
   const openLedger = (ledger: Ledger) => {
-    router.push({
-      pathname: '/ledger/[id]',
-      params: { id: ledger.id },
-    });
+    router.push({ pathname: '/ledger/[id]', params: { id: ledger.id } });
   };
 
   const renderLedgerRow = ({ item }: { item: Ledger }) => (
     <TouchableOpacity
-      style={styles.row}
+      style={[styles.row, { backgroundColor: C.rowBg, borderColor: C.cardBorder }]}
       onPress={() => openLedger(item)}
       activeOpacity={0.7}
     >
       <View style={styles.rowHeader}>
-        <Text style={styles.rowTitle}>{getLedgerLabel(item, lang)}</Text>
-        <Text style={styles.rowGroup}>{getGroupLabel(item.groupName, lang)}</Text>
+        <Text style={[styles.rowTitle, { color: C.text }]}>{getLedgerLabel(item, lang)}</Text>
+        <Text style={[styles.rowGroup, { color: C.muted }]}>{getGroupLabel(item.groupName, lang)}</Text>
       </View>
-      <Text style={styles.rowMeta}>
+      <Text style={[styles.rowMeta, { color: C.muted }]}>
         {getNatureLabel(item.nature, lang)}
         {item.isParty ? ' ・ Party' : ''}
       </Text>
@@ -86,20 +68,20 @@ export default function LedgersListScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={styles.searchBox}>
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder={lang === 'ja' ? "元帳名で検索..." : "Search ledger by name"}
-          placeholderTextColor={COLORS.muted}
-          style={styles.searchInput}
+          placeholder={lang === 'ja' ? '元帳名で検索...' : 'Search ledger by name'}
+          placeholderTextColor={C.muted}
+          style={[styles.searchInput, { borderColor: C.inputBorder, backgroundColor: C.inputBg, color: C.text }]}
         />
       </View>
 
       {search.trim().length === 0 && recentLedgers.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{lang === 'ja' ? "最近使用した元帳" : "Recently used"}</Text>
+          <Text style={[styles.sectionTitle, { color: C.text }]}>{lang === 'ja' ? '最近使用した元帳' : 'Recently used'}</Text>
           <FlatList
             data={recentLedgers}
             keyExtractor={(item) => `recent-${item.id}`}
@@ -108,16 +90,12 @@ export default function LedgersListScreen() {
             contentContainerStyle={styles.recentList}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.recentChip}
+                style={[styles.recentChip, { backgroundColor: C.recentChipBg, borderColor: C.cardBorder }]}
                 onPress={() => openLedger(item)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.recentName} numberOfLines={1}>
-                  {getLedgerLabel(item, lang)}
-                </Text>
-                <Text style={styles.recentGroup} numberOfLines={1}>
-                  {getGroupLabel(item.groupName, lang)}
-                </Text>
+                <Text style={[styles.recentName, { color: C.text }]} numberOfLines={1}>{getLedgerLabel(item, lang)}</Text>
+                <Text style={[styles.recentGroup, { color: C.muted }]} numberOfLines={1}>{getGroupLabel(item.groupName, lang)}</Text>
               </TouchableOpacity>
             )}
           />
@@ -125,10 +103,10 @@ export default function LedgersListScreen() {
       )}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          {search.trim() 
-            ? (lang === 'ja' ? "検索結果" : "Search results") 
-            : (lang === 'ja' ? "すべての元帳" : "All ledgers")}
+        <Text style={[styles.sectionTitle, { color: C.text }]}>
+          {search.trim()
+            ? (lang === 'ja' ? '検索結果' : 'Search results')
+            : (lang === 'ja' ? 'すべての元帳' : 'All ledgers')}
         </Text>
       </View>
 
@@ -139,7 +117,7 @@ export default function LedgersListScreen() {
         renderItem={renderLedgerRow}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>{lang === 'ja' ? "元帳が見つかりませんでした。" : "No ledgers found."}</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>{lang === 'ja' ? '元帳が見つかりませんでした。' : 'No ledgers found.'}</Text>
           </View>
         }
       />
@@ -148,28 +126,21 @@ export default function LedgersListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.lightBg, padding: 16 },
+  container: { flex: 1, padding: 16 },
   searchBox: { marginBottom: 10 },
-  searchInput: {
-    borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 8, fontSize: 14,
-    color: COLORS.dark, backgroundColor: '#fafafa',
-  },
+  searchInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14 },
   section: { marginTop: 4, marginBottom: 4 },
-  sectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.dark },
+  sectionTitle: { fontSize: 14, fontWeight: '600' },
   recentList: { paddingVertical: 6 },
-  recentChip: {
-    width: 140, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
-    paddingHorizontal: 10, paddingVertical: 8, marginRight: 8, backgroundColor: '#fafafa',
-  },
-  recentName: { fontSize: 13, fontWeight: '600', color: COLORS.dark },
-  recentGroup: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  recentChip: { width: 140, borderRadius: 12, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 8, marginRight: 8 },
+  recentName: { fontSize: 13, fontWeight: '600' },
+  recentGroup: { fontSize: 11, marginTop: 2 },
   listContent: { paddingTop: 4, paddingBottom: 16 },
-  row: { borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8, backgroundColor: '#fdfdfd' },
+  row: { borderRadius: 10, borderWidth: 1, padding: 12, marginBottom: 8 },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
-  rowTitle: { fontSize: 15, fontWeight: '600', color: COLORS.dark, flex: 1 },
-  rowGroup: { fontSize: 12, color: COLORS.muted, marginLeft: 6 },
-  rowMeta: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  rowTitle: { fontSize: 15, fontWeight: '600', flex: 1 },
+  rowGroup: { fontSize: 12, marginLeft: 6 },
+  rowMeta: { fontSize: 12, marginTop: 2 },
   emptyBox: { paddingVertical: 20 },
-  emptyText: { fontSize: 13, color: COLORS.muted, textAlign: 'center' },
+  emptyText: { fontSize: 13, textAlign: 'center' },
 });

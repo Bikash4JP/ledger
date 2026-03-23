@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
+import { useTheme } from '../../src/utils/theme';
 
 import type { Ledger } from '../../src/models/ledger';
 import type { Transaction } from '../../src/models/transaction';
@@ -179,6 +180,7 @@ export default function EntriesScreen() {
   const { transactions, ledgers } = useData();
   const { settings } = useSettings();
   const router = useRouter();
+  const C = useTheme();
 
   const lang: Language = settings.language === 'ja' ? 'ja' : 'en';
   const texts = UI_TEXT[lang];
@@ -278,51 +280,51 @@ export default function EntriesScreen() {
   };
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: C.bg }]}>
       {/* Header + Add button */}
       <View style={styles.headerRow}>
         <View>
-          <Text style={styles.title}>{texts.header}</Text>
-          <Text style={styles.subtitle}>{texts.subtitle}</Text>
+          <Text style={[styles.title, { color: C.text }]}>{texts.header}</Text>
+          <Text style={[styles.subtitle, { color: C.muted }]}>{texts.subtitle}</Text>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={goToAddEntry}>
-          <Text style={styles.addButtonText}>+ Add Entry</Text>
+        <TouchableOpacity style={[styles.addButton, { backgroundColor: C.text }]} onPress={goToAddEntry}>
+          <Text style={[styles.addButtonText, { color: C.bg }]}>{lang === 'ja' ? '＋ 追加' : '+ Add Entry'}</Text>
         </TouchableOpacity>
       </View>
 
       {/* Filters */}
-      <View style={styles.filterCard}>
-        <Text style={styles.filterTitle}>{texts.filtersTitle}</Text>
+      <View style={[styles.filterCard, { backgroundColor: C.card, borderColor: C.cardBorder }]}>
+        <Text style={[styles.filterTitle, { color: C.text }]}>{texts.filtersTitle}</Text>
 
         <View style={styles.filterRow}>
           <View style={styles.filterCol}>
-            <Text style={styles.filterLabel}>{texts.fromLabel}</Text>
+            <Text style={[styles.filterLabel, { color: C.muted }]}>{texts.fromLabel}</Text>
             <TextInput
-              style={styles.filterInput}
+              style={[styles.filterInput, { borderColor: C.inputBorder, backgroundColor: C.inputBg, color: C.text }]}
               value={fromDate}
               onChangeText={setFromDate}
             />
           </View>
           <View style={styles.filterCol}>
-            <Text style={styles.filterLabel}>{texts.toLabel}</Text>
+            <Text style={[styles.filterLabel, { color: C.muted }]}>{texts.toLabel}</Text>
             <TextInput
-              style={styles.filterInput}
+              style={[styles.filterInput, { borderColor: C.inputBorder, backgroundColor: C.inputBg, color: C.text }]}
               value={toDate}
               onChangeText={setToDate}
             />
           </View>
         </View>
 
-        <Text style={[styles.filterLabel, { marginTop: 8 }]}>
+        <Text style={[styles.filterLabel, { marginTop: 8, color: C.muted }]}>
           {texts.searchLabel}
         </Text>
         <TextInput
-          style={styles.filterInput}
+          style={[styles.filterInput, { borderColor: C.inputBorder, backgroundColor: C.inputBg, color: C.text }]}
           value={search}
           onChangeText={setSearch}
         />
 
-        <Text style={[styles.filterLabel, { marginTop: 8 }]}>
+        <Text style={[styles.filterLabel, { marginTop: 8, color: C.muted }]}>
           {texts.voucherLabel}
         </Text>
         <View style={styles.voucherRow}>
@@ -341,39 +343,36 @@ export default function EntriesScreen() {
       >
         {filteredTx.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>{texts.emptyMessage}</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>{texts.emptyMessage}</Text>
           </View>
         ) : (
           filteredTx.map((t) => (
             <TouchableOpacity
               key={t.id}
-              style={styles.entryCard}
+              style={[styles.entryCard, { backgroundColor: C.rowBg, borderColor: C.cardBorder }]}
               activeOpacity={0.8}
               onPress={() => openEntryDetail(t.id)}
             >
               <View style={styles.entryRowTop}>
-                <Text style={styles.entryDate}>{t.date}</Text>
-                <Text style={styles.entryAmount}>
-                  ¥{t.amount.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
+                <Text style={[styles.entryDate, { color: C.muted }]}>{t.date}</Text>
+                <Text style={[styles.entryAmount, { color: C.primary }]}>
+                  {settings.currency.symbol}{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </Text>
               </View>
 
               <View style={styles.entryRowMiddle}>
-                <Text style={styles.entryVoucher}>
-                  {texts.voucherNames[t.voucherType as VoucherFilter] ??
-                    t.voucherType}
+                <Text style={[styles.entryVoucher, { color: C.accent }]}>
+                  {texts.voucherNames[t.voucherType as VoucherFilter] ?? t.voucherType}
                 </Text>
-                <Text style={styles.entryPair} numberOfLines={1}>
+                <Text style={[styles.entryPair, { color: C.text }]} numberOfLines={1}>
                   {t.debitName}{' '}
-                  <Text style={styles.entryArrow}>→</Text>{' '}
+                  <Text style={[styles.entryArrow, { color: C.muted }]}>→</Text>{' '}
                   {t.creditName}
                 </Text>
               </View>
 
               {t.narration ? (
-                <Text style={styles.entryNarration} numberOfLines={2}>
+                <Text style={[styles.entryNarration, { color: C.muted }]} numberOfLines={2}>
                   {t.narration}
                 </Text>
               ) : null}
@@ -388,7 +387,6 @@ export default function EntriesScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: COLORS.lightBg,
     padding: 16,
     paddingBottom: 0,
   },
@@ -401,23 +399,19 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '600',
-    color: COLORS.dark,
   },
   subtitle: {
     fontSize: 12,
-    color: COLORS.muted,
     marginTop: 2,
     maxWidth: 220,
   },
   addButton: {
-    backgroundColor: COLORS.dark,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 18,
     alignSelf: 'flex-start',
   },
   addButtonText: {
-    color: COLORS.lightBg,
     fontWeight: '600',
     fontSize: 13,
   },
@@ -425,15 +419,12 @@ const styles = StyleSheet.create({
   filterCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.border,
     padding: 10,
-    backgroundColor: '#fdf7fb',
     marginBottom: 10,
   },
   filterTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS.dark,
     marginBottom: 6,
   },
   filterRow: {
@@ -445,18 +436,14 @@ const styles = StyleSheet.create({
   },
   filterLabel: {
     fontSize: 11,
-    color: COLORS.muted,
     marginBottom: 3,
   },
   filterInput: {
     borderWidth: 1,
-    borderColor: COLORS.border,
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 6,
     fontSize: 12,
-    color: COLORS.dark,
-    backgroundColor: COLORS.lightBg,
   },
   voucherRow: {
     flexDirection: 'row',
@@ -469,18 +456,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.border,
   },
-  voucherChipSelected: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
+  voucherChipSelected: {},
   voucherChipText: {
     fontSize: 11,
-    color: COLORS.dark,
   },
   voucherChipTextSelected: {
-    color: COLORS.lightBg,
     fontWeight: '600',
   },
 
@@ -494,14 +475,11 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
-    color: COLORS.muted,
   },
 
   entryCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#f0f0f0',
-    backgroundColor: '#ffffff',
     padding: 10,
     marginBottom: 8,
   },
@@ -512,12 +490,10 @@ const styles = StyleSheet.create({
   },
   entryDate: {
     fontSize: 12,
-    color: COLORS.muted,
   },
   entryAmount: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS.primary,
   },
   entryRowMiddle: {
     flexDirection: 'row',
@@ -527,22 +503,17 @@ const styles = StyleSheet.create({
   },
   entryVoucher: {
     fontSize: 11,
-    color: COLORS.accent,
     fontWeight: '600',
   },
   entryPair: {
     fontSize: 12,
-    color: COLORS.dark,
     flex: 1,
     textAlign: 'right',
     marginLeft: 8,
   },
-  entryArrow: {
-    color: COLORS.muted,
-  },
+  entryArrow: {},
   entryNarration: {
     fontSize: 11,
-    color: COLORS.muted,
     marginTop: 2,
   },
 });

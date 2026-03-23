@@ -23,6 +23,7 @@ import { useSettings } from '../../src/context/SettingsContext';
 import type { Ledger } from '../../src/models/ledger';
 import type { Transaction } from '../../src/models/transaction';
 import { AppLanguage, getGroupLabel, getLedgerLabel, getNatureLabel } from '../../src/utils/ledgerLabels';
+import { useTheme } from '../../src/utils/theme';
 
 const COLORS = {
   primary: '#ac0c79',
@@ -196,6 +197,7 @@ export default function LedgerDetailScreen() {
 
   const sym = currency.symbol;
   const fmtAmt = (v: number) => formatAmount(v, sym);
+  const C = useTheme();
 
   const ledger = useMemo(
     () => ledgers.find((l: Ledger) => l.id === id),
@@ -380,12 +382,12 @@ export default function LedgerDetailScreen() {
 
   if (!ledger) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: '#000' }]} edges={['top', 'bottom']}>
         <Stack.Screen options={{ title: t.ledger }} />
-        <View style={[styles.container, styles.notFoundContainer]}>
-          <Text style={styles.notFoundText}>{t.notFound}</Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backButtonText}>{t.back}</Text>
+        <View style={[styles.container, styles.notFoundContainer, { backgroundColor: C.bg }]}>
+          <Text style={[styles.notFoundText, { color: C.muted }]}>{t.notFound}</Text>
+          <TouchableOpacity style={[styles.backButton, { borderColor: C.cardBorder }]} onPress={() => router.back()}>
+            <Text style={[styles.backButtonText, { color: C.text }]}>{t.back}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -552,10 +554,10 @@ export default function LedgerDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: '#000' }]} edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: getLedgerLabel(ledger, language as AppLanguage) }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.printHeaderCard}>
+      <ScrollView style={[styles.container, { backgroundColor: C.bg }]} contentContainerStyle={styles.content}>
+        <View style={[styles.printHeaderCard, { backgroundColor: '#121212' }]}>
           <Text style={styles.appNameText}>MobiLedger</Text>
           <Text style={styles.statementTitle}>{t.statementTitle}</Text>
 
@@ -574,21 +576,21 @@ export default function LedgerDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.filterCard}>
-          <Text style={styles.filterTitle}>{t.period}</Text>
+        <View style={[styles.filterCard, { backgroundColor: C.card, borderColor: C.cardBorder }]}>
+          <Text style={[styles.filterTitle, { color: C.text }]}>{t.period}</Text>
           <View style={styles.filterRow}>
             <View style={styles.filterCol}>
-              <Text style={styles.filterLabel}>{t.from}</Text>
-              <TouchableOpacity style={styles.filterInputButton} onPress={() => { setDatePickerTarget('from'); setPickerDate(parseDateString(fromDate)); setShowDatePicker(true); }}>
-                <Text style={fromDate ? styles.filterInputText : styles.filterInputPlaceholder}>
+              <Text style={[styles.filterLabel, { color: C.muted }]}>{t.from}</Text>
+              <TouchableOpacity style={[styles.filterInputButton, { borderColor: C.inputBorder, backgroundColor: C.inputBg }]} onPress={() => { setDatePickerTarget('from'); setPickerDate(parseDateString(fromDate)); setShowDatePicker(true); }}>
+                <Text style={fromDate ? [styles.filterInputText, { color: C.text }] : [styles.filterInputPlaceholder, { color: C.muted }]}>
                   {fromDate || t.selectDate}
                 </Text>
               </TouchableOpacity>
             </View>
             <View style={styles.filterCol}>
-              <Text style={styles.filterLabel}>{t.to}</Text>
-              <TouchableOpacity style={styles.filterInputButton} onPress={() => { setDatePickerTarget('to'); setPickerDate(parseDateString(toDate)); setShowDatePicker(true); }}>
-                <Text style={toDate ? styles.filterInputText : styles.filterInputPlaceholder}>
+              <Text style={[styles.filterLabel, { color: C.muted }]}>{t.to}</Text>
+              <TouchableOpacity style={[styles.filterInputButton, { borderColor: C.inputBorder, backgroundColor: C.inputBg }]} onPress={() => { setDatePickerTarget('to'); setPickerDate(parseDateString(toDate)); setShowDatePicker(true); }}>
+                <Text style={toDate ? [styles.filterInputText, { color: C.text }] : [styles.filterInputPlaceholder, { color: C.muted }]}>
                   {toDate || t.selectDate}
                 </Text>
               </TouchableOpacity>
@@ -614,18 +616,18 @@ export default function LedgerDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.tableCard}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.colDate, styles.tableHeaderText]}>{t.date}</Text>
-            <Text style={[styles.colParticular, styles.tableHeaderText]}>{t.particulars}</Text>
-            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>{t.dr}</Text>
-            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right]}>{t.cr}</Text>
-            <Text style={[styles.colBalance, styles.tableHeaderText, styles.right]}>{t.balance}</Text>
+        <View style={[styles.tableCard, { backgroundColor: C.card, borderColor: C.cardBorder }]}>
+          <View style={[styles.tableHeader, { borderBottomColor: C.cardBorder }]}>
+            <Text style={[styles.colDate, styles.tableHeaderText, { color: C.muted }]}>{t.date}</Text>
+            <Text style={[styles.colParticular, styles.tableHeaderText, { color: C.muted }]}>{t.particulars}</Text>
+            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right, { color: C.muted }]}>{t.dr}</Text>
+            <Text style={[styles.colAmount, styles.tableHeaderText, styles.right, { color: C.muted }]}>{t.cr}</Text>
+            <Text style={[styles.colBalance, styles.tableHeaderText, styles.right, { color: C.muted }]}>{t.balance}</Text>
           </View>
 
           {lines.length === 0 ? (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, { color: C.muted }]}>
                 {isGroupView ? t.noChildLedgers : t.noEntries}
               </Text>
             </View>
@@ -650,32 +652,32 @@ export default function LedgerDetailScreen() {
                 return (
                   <RowWrap key={line.id}>
                     <View style={styles.colDate}>
-                      <Text style={styles.dateText}>{line.date || ''}</Text>
+                      <Text style={[styles.dateText, { color: C.muted }]}>{line.date || ''}</Text>
                     </View>
 
                     <View style={styles.particularCell}>
                       <View style={styles.particularRow}>
-                        <Text style={[styles.particularText, isClickable && styles.clickableText]}>
+                        <Text style={[styles.particularText, { color: C.text }, isClickable && styles.clickableText]}>
                           {line.particular}
                         </Text>
-                        {isClickable ? <Text style={styles.chevronText}>›</Text> : null}
+                        {isClickable ? <Text style={[styles.chevronText, { color: C.accent }]}>›</Text> : null}
                       </View>
 
-                      {line.remarks ? <Text style={styles.remarksText}>{line.remarks}</Text> : null}
+                      {line.remarks ? <Text style={[styles.remarksText, { color: C.muted }]}>{line.remarks}</Text> : null}
                     </View>
 
                     <View style={styles.amountCell}>
-                      <Text style={[styles.amountText, styles.right]}>
+                      <Text style={[styles.amountText, styles.right, { color: C.text }]}>
                         {line.debit ? formatNumberWithOptionalDecimals(line.debit) : ''}
                       </Text>
                     </View>
                     <View style={styles.amountCell}>
-                      <Text style={[styles.amountText, styles.right]}>
+                      <Text style={[styles.amountText, styles.right, { color: C.text }]}>
                         {line.credit ? formatNumberWithOptionalDecimals(line.credit) : ''}
                       </Text>
                     </View>
                     <View style={styles.balanceCell}>
-                      <Text style={[styles.amountText, styles.right]}>{formatNumberWithOptionalDecimals(Math.abs(line.balance))} {line.balance >= 0 ? t.dr : t.cr}</Text>
+                      <Text style={[styles.amountText, styles.right, { color: C.text }]}>{formatNumberWithOptionalDecimals(Math.abs(line.balance))} {line.balance >= 0 ? t.dr : t.cr}</Text>
                     </View>
                   </RowWrap>
                 );
@@ -684,20 +686,20 @@ export default function LedgerDetailScreen() {
               <View style={[styles.tableRow, styles.totalRow]}>
                 <View style={styles.colDate} />
                 <View style={styles.particularCell}>
-                  <Text style={styles.totalLabel}>{t.total}</Text>
+                  <Text style={[styles.totalLabel, { color: C.text }]}>{t.total}</Text>
                 </View>
                 <View style={styles.amountCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                  <Text style={[styles.amountText, styles.totalAmount, styles.right, { color: C.primary }]}>
                     {formatNumberWithOptionalDecimals(totals.debit)}
                   </Text>
                 </View>
                 <View style={styles.amountCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                  <Text style={[styles.amountText, styles.totalAmount, styles.right, { color: C.primary }]}>
                     {formatNumberWithOptionalDecimals(totals.credit)}
                   </Text>
                 </View>
                 <View style={styles.balanceCell}>
-                  <Text style={[styles.amountText, styles.totalAmount, styles.right]}>
+                  <Text style={[styles.amountText, styles.totalAmount, styles.right, { color: C.primary }]}>
                     {formatNumberWithOptionalDecimals(Math.abs(closingBalanceValue))} {closingBalanceValue >= 0 ? t.dr : t.cr}
                   </Text>
                 </View>

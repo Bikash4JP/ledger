@@ -5,6 +5,7 @@ import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
 import { useT } from '../../src/i18n/labels';
 import { AppLanguage, getLedgerLabel } from '../../src/utils/ledgerLabels';
+import { useTheme } from '../../src/utils/theme';
 
 import type { Ledger } from '../../src/models/ledger';
 
@@ -39,6 +40,7 @@ export default function ReportsScreen() {
   const { ledgers, transactions } = useData();
   const { settings } = useSettings();
   const t = useT();
+  const C = useTheme();
   const lang: AppLanguage = (settings.language as AppLanguage) || 'en';
   const currency = settings.currency;
   const sym = currency.symbol;
@@ -148,12 +150,12 @@ export default function ReportsScreen() {
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: C.bg }]} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
         <View>
-          <Text style={styles.title}>{t('reports.header.title')}</Text>
-          <Text style={styles.subtitle}>{t('reports.header.subtitle')}</Text>
-          <Text style={styles.periodLabel}>{periodLabel}</Text>
+          <Text style={[styles.title, { color: C.text }]}>{t('reports.header.title')}</Text>
+          <Text style={[styles.subtitle, { color: C.muted }]}>{t('reports.header.subtitle')}</Text>
+          <Text style={[styles.periodLabel, { color: C.accent }]}>{periodLabel}</Text>
         </View>
       </View>
 
@@ -164,103 +166,103 @@ export default function ReportsScreen() {
       </View>
 
       {/* TRIAL BALANCE */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('reports.trial.title')}</Text>
-        <View style={styles.tableHeader}>
-          <Text style={styles.tableCellLedger}>{t('reports.trial.ledger')}</Text>
-          <Text style={[styles.tableCellAmt, styles.right]}>{t('reports.trial.debit')}</Text>
-          <Text style={[styles.tableCellAmt, styles.right]}>{t('reports.trial.credit')}</Text>
+      <View style={[styles.section, { backgroundColor: C.card, borderColor: C.cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: C.text }]}>{t('reports.trial.title')}</Text>
+        <View style={[styles.tableHeader, { borderColor: C.cardBorder }]}>
+          <Text style={[styles.tableCellLedger, { color: C.text }]}>{t('reports.trial.ledger')}</Text>
+          <Text style={[styles.tableCellAmt, styles.right, { color: C.text }]}>{t('reports.trial.debit')}</Text>
+          <Text style={[styles.tableCellAmt, styles.right, { color: C.text }]}>{t('reports.trial.credit')}</Text>
         </View>
         {trialRows.map(r => (
           <View key={r.ledgerId} style={styles.tableRow}>
-            <Text style={styles.tableCellLedger}>{r.name}</Text>
-            <Text style={[styles.tableCellAmt, styles.right]}>{fmt(r.debit)}</Text>
-            <Text style={[styles.tableCellAmt, styles.right]}>{fmt(r.credit)}</Text>
+            <Text style={[styles.tableCellLedger, { color: C.text }]}>{r.name}</Text>
+            <Text style={[styles.tableCellAmt, styles.right, { color: C.text }]}>{fmt(r.debit)}</Text>
+            <Text style={[styles.tableCellAmt, styles.right, { color: C.text }]}>{fmt(r.credit)}</Text>
           </View>
         ))}
-        <View style={styles.tableFooterLine} />
+        <View style={[styles.tableFooterLine, { backgroundColor: C.cardBorder }]} />
         <View style={styles.tableRow}>
-          <Text style={[styles.tableCellLedger, styles.totalLabel]}>{t('reports.trial.total')}</Text>
-          <Text style={[styles.tableCellAmt, styles.right, styles.totalAmount]}>{fmt(trialTotals.debit)}</Text>
-          <Text style={[styles.tableCellAmt, styles.right, styles.totalAmount]}>{fmt(trialTotals.credit)}</Text>
+          <Text style={[styles.tableCellLedger, styles.totalLabel, { color: C.text }]}>{t('reports.trial.total')}</Text>
+          <Text style={[styles.tableCellAmt, styles.right, styles.totalAmount, { color: C.primary }]}>{fmt(trialTotals.debit)}</Text>
+          <Text style={[styles.tableCellAmt, styles.right, styles.totalAmount, { color: C.primary }]}>{fmt(trialTotals.credit)}</Text>
         </View>
       </View>
 
       {/* PROFIT & LOSS */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('reports.pl.title')}</Text>
+      <View style={[styles.section, { backgroundColor: C.card, borderColor: C.cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: C.text }]}>{t('reports.pl.title')}</Text>
         <View style={styles.plColumnsRow}>
           <View style={styles.plColumn}>
             <View style={styles.columnContent}>
-              <Text style={styles.plColumnTitle}>{t('reports.pl.expenses')}</Text>
+              <Text style={[styles.plColumnTitle, { color: C.muted, borderColor: C.cardBorder }]}>{t('reports.pl.expenses')}</Text>
               {expenseRows.map(r => (
                 <View key={r.ledgerId} style={styles.plRow}>
-                  <Text style={styles.plName}>{r.name}</Text>
-                  <Text style={styles.plAmountRight}>{fmt(r.amount)}</Text>
+                  <Text style={[styles.plName, { color: C.text }]}>{r.name}</Text>
+                  <Text style={[styles.plAmountRight, { color: C.text }]}>{fmt(r.amount)}</Text>
                 </View>
               ))}
             </View>
-            <View style={styles.plTotalRow}>
-              <Text style={styles.plTotalLabel}>{t('reports.pl.totalExpenses')}</Text>
-              <Text style={styles.plTotalAmount}>{fmt(totalExpense)}</Text>
+            <View style={[styles.plTotalRow, { borderColor: C.cardBorder }]}>
+              <Text style={[styles.plTotalLabel, { color: C.text }]}>{t('reports.pl.totalExpenses')}</Text>
+              <Text style={[styles.plTotalAmount, { color: C.text }]}>{fmt(totalExpense)}</Text>
             </View>
           </View>
 
-          <View style={styles.verticalDivider} />
+          <View style={[styles.verticalDivider, { backgroundColor: C.cardBorder }]} />
 
           <View style={styles.plColumn}>
             <View style={styles.columnContent}>
-              <Text style={styles.plColumnTitle}>{t('reports.pl.incomes')}</Text>
+              <Text style={[styles.plColumnTitle, { color: C.muted, borderColor: C.cardBorder }]}>{t('reports.pl.incomes')}</Text>
               {incomeRows.map(r => (
                 <View key={r.ledgerId} style={styles.plRow}>
-                  <Text style={styles.plName}>{r.name}</Text>
-                  <Text style={styles.plAmountRight}>{fmt(r.amount)}</Text>
+                  <Text style={[styles.plName, { color: C.text }]}>{r.name}</Text>
+                  <Text style={[styles.plAmountRight, { color: C.text }]}>{fmt(r.amount)}</Text>
                 </View>
               ))}
             </View>
-            <View style={styles.plTotalRow}>
-              <Text style={styles.plTotalLabel}>{t('reports.pl.totalIncomes')}</Text>
-              <Text style={styles.plTotalAmount}>{fmt(totalIncome)}</Text>
+            <View style={[styles.plTotalRow, { borderColor: C.cardBorder }]}>
+              <Text style={[styles.plTotalLabel, { color: C.text }]}>{t('reports.pl.totalIncomes')}</Text>
+              <Text style={[styles.plTotalAmount, { color: C.text }]}>{fmt(totalIncome)}</Text>
             </View>
           </View>
         </View>
       </View>
 
       {/* BALANCE SHEET */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('reports.bs.title')}</Text>
+      <View style={[styles.section, { backgroundColor: C.card, borderColor: C.cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: C.text }]}>{t('reports.bs.title')}</Text>
         <View style={styles.bsColumnsRow}>
           <View style={styles.bsColumn}>
             <View style={styles.columnContent}>
-              <Text style={styles.bsColumnTitle}>{t('reports.bs.liabilities')}</Text>
+              <Text style={[styles.bsColumnTitle, { color: C.muted, borderColor: C.cardBorder }]}>{t('reports.bs.liabilities')}</Text>
               {liabilityRows.map(r => (
                 <View key={r.ledgerId} style={styles.bsRow}>
-                  <Text style={styles.bsName}>{r.name}</Text>
-                  <Text style={styles.bsAmountRight}>{fmt(r.amount)}</Text>
+                  <Text style={[styles.bsName, { color: C.text }]}>{r.name}</Text>
+                  <Text style={[styles.bsAmountRight, { color: C.text }]}>{fmt(r.amount)}</Text>
                 </View>
               ))}
             </View>
-            <View style={styles.bsTotalRow}>
-              <Text style={styles.bsTotalLabel}>{t('reports.bs.totalLiabilities')}</Text>
-              <Text style={styles.bsTotalAmount}>{fmt(totalLiabilities)}</Text>
+            <View style={[styles.bsTotalRow, { borderColor: C.cardBorder }]}>
+              <Text style={[styles.bsTotalLabel, { color: C.text }]}>{t('reports.bs.totalLiabilities')}</Text>
+              <Text style={[styles.bsTotalAmount, { color: C.text }]}>{fmt(totalLiabilities)}</Text>
             </View>
           </View>
 
-          <View style={styles.verticalDivider} />
+          <View style={[styles.verticalDivider, { backgroundColor: C.cardBorder }]} />
 
           <View style={styles.bsColumn}>
             <View style={styles.columnContent}>
-              <Text style={styles.bsColumnTitle}>{t('reports.bs.assets')}</Text>
+              <Text style={[styles.bsColumnTitle, { color: C.muted, borderColor: C.cardBorder }]}>{t('reports.bs.assets')}</Text>
               {assetRows.map(r => (
                 <View key={r.ledgerId} style={styles.bsRow}>
-                  <Text style={styles.bsName}>{r.name}</Text>
-                  <Text style={styles.bsAmountRight}>{fmt(r.amount)}</Text>
+                  <Text style={[styles.bsName, { color: C.text }]}>{r.name}</Text>
+                  <Text style={[styles.bsAmountRight, { color: C.text }]}>{fmt(r.amount)}</Text>
                 </View>
               ))}
             </View>
-            <View style={styles.bsTotalRow}>
-              <Text style={styles.bsTotalLabel}>{t('reports.bs.totalAssets')}</Text>
-              <Text style={styles.bsTotalAmount}>{fmt(totalAssets)}</Text>
+            <View style={[styles.bsTotalRow, { borderColor: C.cardBorder }]}>
+              <Text style={[styles.bsTotalLabel, { color: C.text }]}>{t('reports.bs.totalAssets')}</Text>
+              <Text style={[styles.bsTotalAmount, { color: C.text }]}>{fmt(totalAssets)}</Text>
             </View>
           </View>
         </View>

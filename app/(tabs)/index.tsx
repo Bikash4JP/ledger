@@ -13,15 +13,7 @@ import {
 } from 'react-native';
 import { useData } from '../../src/context/AppDataContext';
 import { useSettings } from '../../src/context/SettingsContext';
-
-const COLORS = {
-  primary: '#ac0c79',
-  dark: '#121212',
-  lightBg: '#ffffff',
-  accent: '#2e9ff5',
-  muted: '#777777',
-  cardBorder: '#e0e0e0',
-};
+import { useTheme } from '../../src/utils/theme';
 
 type Language = 'en' | 'ja';
 
@@ -87,42 +79,21 @@ const UI_TEXT: Record<
   },
 };
 
-// 🔑 Onboarding flag (pehle settings me tha, ab home me)
 const ONBOARDING_KEY = '@ledger_onboarding_seen_v1';
 
-// Tutorial slides (same idea as before + last slide = login requirement)
 const ONBOARDING_SLIDES = [
-  {
-    key: 'welcome',
-    title: 'Welcome to Ledger',
-    body: 'Track your personal and business Transactions in one simple app.',
-  },
-  {
-    key: 'entries',
-    title: 'Quick Entries',
-    body: 'Add cash in / out in seconds and keep your daily flow updated.',
-  },
-  {
-    key: 'books',
-    title: 'Automatic Books',
-    body: 'Ledger automatically prepares basic accounting books from your entries.',
-  },
-  {
-    key: 'cloud',
-    title: 'Cloud Ready',
-    body: 'Your entries are stored on your accountso you can Login from any device to see your data.',
-  },
-  {
-    key: 'loginRequired',
-    title: 'Login Required',
-    body: 'You must login or register to use all features of this app.',
-  },
+  { key: 'welcome', title: 'Welcome to Ledger', body: 'Track your personal and business Transactions in one simple app.' },
+  { key: 'entries', title: 'Quick Entries', body: 'Add cash in / out in seconds and keep your daily flow updated.' },
+  { key: 'books', title: 'Automatic Books', body: 'Ledger automatically prepares basic accounting books from your entries.' },
+  { key: 'cloud', title: 'Cloud Ready', body: 'Your entries are stored on your account, so you can Login from any device to see your data.' },
+  { key: 'loginRequired', title: 'Login Required', body: 'You must login or register to use all features of this app.' },
 ];
 
 export default function HomeScreen() {
   const router = useRouter();
   const { ledgers, transactions } = useData();
   const { settings } = useSettings();
+  const C = useTheme();
 
   const lang: Language = settings.language === 'ja' ? 'ja' : 'en';
   const t = UI_TEXT[lang];
@@ -135,8 +106,8 @@ export default function HomeScreen() {
   );
 
   const isLoggedIn = !!settings.authProfile;
+  const currency = settings.currency;
 
-  // -------- Onboarding state (pehle settings me tha) --------
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingIndex, setOnboardingIndex] = useState(0);
 
@@ -144,9 +115,7 @@ export default function HomeScreen() {
     const loadOnboarding = async () => {
       try {
         const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
-        if (!seen) {
-          setShowOnboarding(true);
-        }
+        if (!seen) setShowOnboarding(true);
       } catch (e) {
         console.warn('Failed to read onboarding flag', e);
       }
@@ -155,154 +124,65 @@ export default function HomeScreen() {
   }, []);
 
   const goToLoginTab = () => {
-    // Directly jump to Settings tab, Account section
-    router.push({
-      pathname: '/(tabs)/setting',
-      params: { section: 'account' },
-    } as any);
+    router.push({ pathname: '/(tabs)/setting', params: { section: 'account' } } as any);
   };
 
   const finishOnboarding = async () => {
-    try {
-      await AsyncStorage.setItem(ONBOARDING_KEY, '1');
-    } catch (e) {
-      console.warn('Failed to save onboarding flag', e);
-    }
+    try { await AsyncStorage.setItem(ONBOARDING_KEY, '1'); } catch (e) { console.warn('Failed to save onboarding flag', e); }
     setShowOnboarding(false);
-    // Tutorial ke baad turant login/signup pe le jao
     goToLoginTab();
   };
 
   const goNextSlide = () => {
-    if (onboardingIndex < ONBOARDING_SLIDES.length - 1) {
-      setOnboardingIndex((i) => i + 1);
-    } else {
-      void finishOnboarding();
-    }
+    if (onboardingIndex < ONBOARDING_SLIDES.length - 1) setOnboardingIndex((i) => i + 1);
+    else void finishOnboarding();
   };
-
-  const goPrevSlide = () => {
-    if (onboardingIndex > 0) {
-      setOnboardingIndex((i) => i - 1);
-    }
-  };
-
+  const goPrevSlide = () => { if (onboardingIndex > 0) setOnboardingIndex((i) => i - 1); };
   const currentSlide = ONBOARDING_SLIDES[onboardingIndex];
 
-  // -------- Helper: require login before navigation --------
   const requireAuth = (action: () => void) => {
     if (!isLoggedIn) {
-      Alert.alert(
-        'Login required',
-        'Please login or register to use this feature.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Go to login',
-            onPress: () => goToLoginTab(),
-          },
-        ],
-      );
+      Alert.alert('Login required', 'Please login or register to use this feature.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to login', onPress: () => goToLoginTab() },
+      ]);
       return;
     }
     action();
   };
 
-  const handleAddEntry = () => {
-    requireAuth(() => {
-      // yahan bhi same param → default Cash Book tab
-      router.push({
-        pathname: '/entry/new',
-        params: { tab: 'cash' },
-      } as any);
-    });
-  };
-
-  const handleGoReports = () => {
-    requireAuth(() => {
-      router.push('/(tabs)/reports' as any);
-    });
-  };
-
-  const handleGoEntries = () => {
-    requireAuth(() => {
-      router.push('/(tabs)/entries' as any);
-    });
-  };
-
-  const handleGoLedgers = () => {
-    requireAuth(() => {
-      router.push('/(tabs)/ledgers' as any);
-    });
-  };
+  const handleAddEntry = () => requireAuth(() => router.push({ pathname: '/entry/new', params: { tab: 'cash' } } as any));
+  const handleGoReports = () => requireAuth(() => router.push('/(tabs)/reports' as any));
+  const handleGoEntries = () => requireAuth(() => router.push('/(tabs)/entries' as any));
+  const handleGoLedgers = () => requireAuth(() => router.push('/(tabs)/ledgers' as any));
 
   return (
     <>
-      {/* 🔰 Onboarding modal overlay - first app use only */}
-      <Modal
-        visible={showOnboarding}
-        animationType="fade"
-        transparent
-        statusBarTranslucent
-      >
+      <Modal visible={showOnboarding} animationType="fade" transparent statusBarTranslucent>
         <View style={styles.onboardingOverlay}>
-          <View style={styles.onboardingCard}>
+          <View style={[styles.onboardingCard, { backgroundColor: C.card }]}>
             <View style={styles.onboardingHeaderRow}>
-              <Text style={styles.onboardingTitle}>{currentSlide.title}</Text>
+              <Text style={[styles.onboardingTitle, { color: C.text }]}>{currentSlide.title}</Text>
               <TouchableOpacity onPress={finishOnboarding}>
-                <Text style={styles.onboardingSkip}>Skip</Text>
+                <Text style={[styles.onboardingSkip, { color: C.accent }]}>Skip</Text>
               </TouchableOpacity>
             </View>
-
             <View style={styles.onboardingBody}>
-              <Text style={styles.onboardingBodyText}>
-                {currentSlide.body}
-              </Text>
+              <Text style={[styles.onboardingBodyText, { color: C.text }]}>{currentSlide.body}</Text>
             </View>
-
             <View style={styles.onboardingDotsRow}>
               {ONBOARDING_SLIDES.map((s, idx) => (
-                <View
-                  key={s.key}
-                  style={[
-                    styles.onboardingDot,
-                    idx === onboardingIndex && styles.onboardingDotActive,
-                  ]}
-                />
+                <View key={s.key} style={[styles.onboardingDot, idx === onboardingIndex && { backgroundColor: C.primary, width: 14 }]} />
               ))}
             </View>
-
             <View style={styles.onboardingFooterRow}>
-              <TouchableOpacity
-                disabled={onboardingIndex === 0}
-                onPress={goPrevSlide}
-                style={[
-                  styles.onboardingButton,
-                  onboardingIndex === 0 && styles.onboardingButtonDisabled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.onboardingButtonText,
-                    onboardingIndex === 0 &&
-                      styles.onboardingButtonTextDisabled,
-                  ]}
-                >
-                  Prev
-                </Text>
+              <TouchableOpacity disabled={onboardingIndex === 0} onPress={goPrevSlide}
+                style={[styles.onboardingButton, { borderColor: C.cardBorder }, onboardingIndex === 0 && styles.onboardingButtonDisabled]}>
+                <Text style={[styles.onboardingButtonText, { color: C.text }, onboardingIndex === 0 && { color: '#bbb' }]}>Prev</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={goNextSlide}
-                style={[
-                  styles.onboardingButton,
-                  styles.onboardingPrimaryButton,
-                ]}
-              >
+              <TouchableOpacity onPress={goNextSlide} style={[styles.onboardingButton, { backgroundColor: C.primary, borderColor: C.primary }]}>
                 <Text style={[styles.onboardingButtonText, { color: '#fff' }]}>
-                  {onboardingIndex === ONBOARDING_SLIDES.length - 1
-                    ? 'Go to Login'
-                    : 'Next'}
+                  {onboardingIndex === ONBOARDING_SLIDES.length - 1 ? 'Go to Login' : 'Next'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -310,104 +190,67 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* 🏠 Main home content */}
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-      >
+      <ScrollView style={[styles.container, { backgroundColor: C.bg }]} contentContainerStyle={styles.content}>
         {/* Header */}
         <View style={styles.headerBox}>
           <Text style={styles.appName}>{t.appName}</Text>
           <Text style={styles.appTagline}>{t.tagline}</Text>
-
           <View style={styles.headerButtonsRow}>
-            <TouchableOpacity
-              style={[styles.headerButton, styles.headerPrimaryButton]}
-              onPress={handleAddEntry}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={[styles.headerButton, styles.headerPrimaryButton, { backgroundColor: C.primary, borderColor: C.primary }]} onPress={handleAddEntry} activeOpacity={0.7}>
               <Text style={styles.headerPrimaryText}>{t.addEntry}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.headerButton, styles.headerSecondaryButton]}
-              onPress={handleGoReports}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.headerSecondaryText}>
-                {t.viewReports}
-              </Text>
+            <TouchableOpacity style={[styles.headerButton, styles.headerSecondaryButton]} onPress={handleGoReports} activeOpacity={0.7}>
+              <Text style={styles.headerSecondaryText}>{t.viewReports}</Text>
             </TouchableOpacity>
           </View>
-
           {!isLoggedIn && (
-            <TouchableOpacity
-              style={styles.loginHintBox}
-              onPress={goToLoginTab}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.loginHintText}>
-                🔐 Login or register to start using all features.
-              </Text>
+            <TouchableOpacity style={styles.loginHintBox} onPress={goToLoginTab} activeOpacity={0.7}>
+              <Text style={styles.loginHintText}>🔐 Login or register to start using all features.</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Stats row */}
+        {/* Stats */}
         <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>{t.ledgersLabel}</Text>
-            <Text style={styles.statValue}>{totalLedgers}</Text>
-            <Text style={styles.statHint}>{t.ledgersHint}</Text>
+          <View style={[styles.statCard, { backgroundColor: C.statCard, borderColor: C.cardBorder }]}>
+            <Text style={[styles.statLabel, { color: C.muted }]}>{t.ledgersLabel}</Text>
+            <Text style={[styles.statValue, { color: C.primary }]}>{totalLedgers}</Text>
+            <Text style={[styles.statHint, { color: C.muted }]}>{t.ledgersHint}</Text>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>{t.entriesLabel}</Text>
-            <Text style={styles.statValue}>{totalEntries}</Text>
-            <Text style={styles.statHint}>{t.entriesHint}</Text>
+          <View style={[styles.statCard, { backgroundColor: C.statCard, borderColor: C.cardBorder }]}>
+            <Text style={[styles.statLabel, { color: C.muted }]}>{t.entriesLabel}</Text>
+            <Text style={[styles.statValue, { color: C.primary }]}>{totalEntries}</Text>
+            <Text style={[styles.statHint, { color: C.muted }]}>{t.entriesHint}</Text>
           </View>
         </View>
 
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, styles.statWideCard]}>
-            <Text style={styles.statLabel}>{t.totalVolumeLabel}</Text>
-            <Text style={styles.statValue}>
-              ¥{totalVolume.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-              })}
+          <View style={[styles.statCard, styles.statWideCard, { backgroundColor: C.statCard, borderColor: C.cardBorder }]}>
+            <Text style={[styles.statLabel, { color: C.muted }]}>{t.totalVolumeLabel}</Text>
+            <Text style={[styles.statValue, { color: C.primary }]}>
+              {currency.symbol}{totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </Text>
-            <Text style={styles.statHint}>{t.totalVolumeHint}</Text>
+            <Text style={[styles.statHint, { color: C.muted }]}>{t.totalVolumeHint}</Text>
           </View>
         </View>
 
         {/* Quick links */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t.quickNavTitle}</Text>
+          <Text style={[styles.sectionTitle, { color: C.text }]}>{t.quickNavTitle}</Text>
           <View style={styles.quickRow}>
-            <TouchableOpacity
-              style={styles.quickCard}
-              onPress={handleGoEntries}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quickTitle}>{t.quickEntriesTitle}</Text>
-              <Text style={styles.quickText}>{t.quickEntriesText}</Text>
+            <TouchableOpacity style={[styles.quickCard, { backgroundColor: C.card, borderColor: C.cardBorder }]} onPress={handleGoEntries} activeOpacity={0.7}>
+              <Text style={[styles.quickTitle, { color: C.text }]}>{t.quickEntriesTitle}</Text>
+              <Text style={[styles.quickText, { color: C.muted }]}>{t.quickEntriesText}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.quickCard}
-              onPress={handleGoLedgers}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quickTitle}>{t.quickLedgersTitle}</Text>
-              <Text style={styles.quickText}>{t.quickLedgersText}</Text>
+            <TouchableOpacity style={[styles.quickCard, { backgroundColor: C.card, borderColor: C.cardBorder }]} onPress={handleGoLedgers} activeOpacity={0.7}>
+              <Text style={[styles.quickTitle, { color: C.text }]}>{t.quickLedgersTitle}</Text>
+              <Text style={[styles.quickText, { color: C.muted }]}>{t.quickLedgersText}</Text>
             </TouchableOpacity>
           </View>
-
           <View style={styles.quickRow}>
-            <TouchableOpacity
-              style={styles.quickCardWide}
-              onPress={handleGoReports}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quickTitle}>{t.quickReportsTitle}</Text>
-              <Text style={styles.quickText}>{t.quickReportsText}</Text>
+            <TouchableOpacity style={[styles.quickCardWide, { backgroundColor: C.card, borderColor: C.cardBorder }]} onPress={handleGoReports} activeOpacity={0.7}>
+              <Text style={[styles.quickTitle, { color: C.text }]}>{t.quickReportsTitle}</Text>
+              <Text style={[styles.quickText, { color: C.muted }]}>{t.quickReportsText}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -417,222 +260,43 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.lightBg,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 24,
-  },
-  headerBox: {
-    backgroundColor: COLORS.dark,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  appName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: COLORS.lightBg,
-  },
-  appTagline: {
-    fontSize: 13,
-    color: COLORS.muted,
-    marginTop: 4,
-  },
-  headerButtonsRow: {
-    flexDirection: 'row',
-    marginTop: 12,
-  },
-  headerButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  headerPrimaryButton: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-    marginRight: 8,
-  },
-  headerSecondaryButton: {
-    backgroundColor: 'transparent',
-    borderColor: COLORS.lightBg,
-  },
-  headerPrimaryText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.lightBg,
-  },
-  headerSecondaryText: {
-    fontSize: 13,
-    color: COLORS.lightBg,
-  },
-  loginHintBox: {
-    marginTop: 10,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#333333',
-  },
-  loginHintText: {
-    fontSize: 12,
-    color: '#ffffff',
-  },
-
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 10,
-  },
-  statCard: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    padding: 12,
-    backgroundColor: '#fafafa',
-  },
-  statWideCard: {
-    flex: 1,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: COLORS.muted,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.primary,
-    marginTop: 4,
-  },
-  statHint: {
-    fontSize: 11,
-    color: COLORS.muted,
-    marginTop: 4,
-  },
-  section: {
-    marginTop: 8,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.dark,
-    marginBottom: 8,
-  },
-  quickRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 10,
-  },
-  quickCard: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    padding: 12,
-    backgroundColor: '#fdf9ff',
-  },
-  quickCardWide: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    padding: 12,
-    backgroundColor: '#f3f8ff',
-  },
-  quickTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.dark,
-    marginBottom: 4,
-  },
-  quickText: {
-    fontSize: 12,
-    color: COLORS.muted,
-  },
-
-  // onboarding styles (shifted from settings)
-  onboardingOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  onboardingCard: {
-    width: '100%',
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    padding: 16,
-  },
-  onboardingHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  onboardingTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.dark,
-    flex: 1,
-    paddingRight: 8,
-  },
-  onboardingSkip: {
-    fontSize: 12,
-    color: COLORS.accent,
-    fontWeight: '500',
-  },
-  onboardingBody: {
-    marginTop: 16,
-    marginBottom: 16,
-  },
-  onboardingBodyText: {
-    fontSize: 14,
-    color: COLORS.dark,
-    lineHeight: 20,
-  },
-  onboardingDotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 12,
-    marginTop: 4,
-  },
-  onboardingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ddd',
-    marginHorizontal: 3,
-  },
-  onboardingDotActive: {
-    backgroundColor: COLORS.primary,
-    width: 14,
-  },
-  onboardingFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  onboardingButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-  onboardingPrimaryButton: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  onboardingButtonText: {
-    fontSize: 13,
-    color: COLORS.dark,
-  },
-  onboardingButtonTextDisabled: {
-    color: '#bbb',
-  },
-  onboardingButtonDisabled: {
-    borderColor: '#eee',
-  },
+  container: { flex: 1 },
+  content: { padding: 16, paddingBottom: 24 },
+  headerBox: { backgroundColor: '#121212', borderRadius: 16, padding: 16, marginBottom: 16 },
+  appName: { fontSize: 22, fontWeight: '700', color: '#ffffff' },
+  appTagline: { fontSize: 13, color: '#777777', marginTop: 4 },
+  headerButtonsRow: { flexDirection: 'row', marginTop: 12 },
+  headerButton: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  headerPrimaryButton: { marginRight: 8 },
+  headerSecondaryButton: { backgroundColor: 'transparent', borderColor: '#ffffff' },
+  headerPrimaryText: { fontSize: 13, fontWeight: '600', color: '#ffffff' },
+  headerSecondaryText: { fontSize: 13, color: '#ffffff' },
+  loginHintBox: { marginTop: 10, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: '#333333' },
+  loginHintText: { fontSize: 12, color: '#ffffff' },
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  statCard: { flex: 1, borderRadius: 12, borderWidth: 1, padding: 12 },
+  statWideCard: { flex: 1 },
+  statLabel: { fontSize: 12 },
+  statValue: { fontSize: 18, fontWeight: '700', marginTop: 4 },
+  statHint: { fontSize: 11, marginTop: 4 },
+  section: { marginTop: 8 },
+  sectionTitle: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
+  quickRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  quickCard: { flex: 1, borderRadius: 12, borderWidth: 1, padding: 12 },
+  quickCardWide: { flex: 1, borderRadius: 12, borderWidth: 1, padding: 12 },
+  quickTitle: { fontSize: 14, fontWeight: '600', marginBottom: 4 },
+  quickText: { fontSize: 12 },
+  onboardingOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  onboardingCard: { width: '100%', borderRadius: 20, padding: 16 },
+  onboardingHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  onboardingTitle: { fontSize: 18, fontWeight: '600', flex: 1, paddingRight: 8 },
+  onboardingSkip: { fontSize: 12, fontWeight: '500' },
+  onboardingBody: { marginTop: 16, marginBottom: 16 },
+  onboardingBodyText: { fontSize: 14, lineHeight: 20 },
+  onboardingDotsRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 12, marginTop: 4 },
+  onboardingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ddd', marginHorizontal: 3 },
+  onboardingFooterRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  onboardingButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1 },
+  onboardingButtonDisabled: { borderColor: '#eee' },
+  onboardingButtonText: { fontSize: 13 },
 });
