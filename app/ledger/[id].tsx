@@ -431,8 +431,8 @@ export default function LedgerDetailScreen() {
       }
 
       const safeName = ledger.name.replace(/[^\w\-]+/g, '_') || 'ledger';
-      const fromLabel = fromDate || t.beginning;
-      const toLabel = toDate || t.today;
+      const fromLabel = fromDate || lines.find(l => l.date)?.date || t.beginning;
+      const toLabel = toDate || formatDateToInput(new Date());
       const fileName = `${safeName}_${fromLabel}_${toLabel}.pdf`;
 
       const rowsHtml = lines
