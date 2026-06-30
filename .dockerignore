@@ -1,0 +1,13 @@
+node_modules
+.expo
+dist
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+android
+ios
+.vscode
+coverage

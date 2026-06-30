@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────
+#  MobiLedger — docker-compose.yml  (frontend only)
+#
+#  Start:  docker compose up
+#  Web:    http://localhost:8081
+#
+#  For the full stack (frontend + backend together), see:
+#  docs/eng/03-docker-migration.md  or
+#  docs/jp/03-docker-migration.md
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: mobiledger-dev
+
+    # Source code mounted as volume — file edits hot-reload instantly
+    volumes:
+      - .:/app
+      - /app/node_modules     # keep container's node_modules isolated
+
+    env_file:
+      - .env
+
+    environment:
+      - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL:-http://localhost:3000}
+
+    ports:
+      - "8081:8081"    # Metro bundler / Expo web
+      - "19000:19000"  # Expo Go (LAN)
+      - "19001:19001"  # Expo DevTools
+      - "19006:19006"  # Expo web preview
+
+    stdin_open: true
+    tty: true
+
+    restart: unless-stopped
