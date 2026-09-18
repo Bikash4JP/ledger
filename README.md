@@ -4,6 +4,30 @@
 
 ---
 
+<p align="center">
+  <a href="assets/video/brag.mp4" title="Watch the 22-second film (with sound)">
+    <img src="assets/video/brag-teaser.gif" alt="MobiLedger in 22 seconds: one cash entry becomes the Trial Balance, Profit &amp; Loss, Balance Sheet and Cash Flow, in English and Japanese" width="640">
+  </a>
+  <br>
+  <sub><a href="assets/video/brag.mp4">&#9654; Watch the full 22-second film (with sound)</a> &nbsp;&middot;&nbsp; <a href="README_JP.md">&#26085;&#26412;&#35486;&#29256; README</a></sub>
+</p>
+
+> **Simple double-entry ledger for mobile.** Log daily Cash Book or Journal entries and MobiLedger builds the Trial Balance, Profit & Loss, Balance Sheet and Cash Flow for you, in English and 日本語.
+
+### Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/home-en.png" alt="MobiLedger home screen in dark theme" width="250">
+  &nbsp;
+  <img src="assets/screenshots/entry-en.png" alt="Cash Book Entry form with ledger suggestions" width="250">
+  &nbsp;
+  <img src="assets/screenshots/ledgers-en.png" alt="Ledgers list with the built-in standard accounts" width="250">
+</p>
+
+<sub>Screenshots are captured from the running app in **demo mode** (no backend): 56 built-in ledgers and no entries yet. The **Entries**, **Ledgers** and **Reports** tabs require a login, see [Getting Started](#14-getting-started). The film above is a stylised illustration: its UI was recreated for motion, so small visual details differ from the real app.</sub>
+
+---
+
 ## Table of Contents
 
 1. [Overview](#1-overview)
@@ -570,6 +594,11 @@ All API calls use the base URL from `EXPO_PUBLIC_API_URL`. User identity is pass
 |---|---|---|
 | `POST` | `/auth/signup` | `{ name, businessName?, email, username, password }` |
 | `POST` | `/auth/login` | `{ usernameOrEmail, password }` |
+
+## Credits
+
+- **Music** (intro film): "Happy Beats & Business Moves Vol. 9" by [Sascha Ende](https://ende.app/en/albums/happy-beats-business-moves), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Trimmed and faded for the film.
+- **Sound effects** (intro film): [Kenney](https://kenney.nl/) interface, impact and casino sounds, and "Keyboard Soundpack #1" by unicae_games. All CC0 (public domain).
 
 ---
 

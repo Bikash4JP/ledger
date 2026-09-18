@@ -4,6 +4,28 @@
 
 ---
 
+<p align="center">
+  <a href="assets/video/bragJP.mp4" title="23秒の紹介動画を見る（音声あり）">
+    <img src="assets/video/bragJP-teaser.gif" alt="23秒でわかるMobiLedger：現金出納帳の入力だけで、合計残高試算表・損益計算書・貸借対照表・キャッシュ・フローが自動で完成（日本語・英語対応）" width="640">
+  </a>
+  <br>
+  <sub><a href="assets/video/bragJP.mp4">&#9654; 23秒の紹介動画を見る（音声あり）</a> &nbsp;&middot;&nbsp; <a href="README.md">English README</a></sub>
+</p>
+
+> **モバイル向けのシンプルな複式簿記アプリ。** 現金出納帳や振替伝票を入力するだけで、合計残高試算表・損益計算書・貸借対照表・キャッシュ・フローを自動作成します。日本語・英語に対応。
+
+### スクリーンショット
+
+<p align="center">
+  <img src="assets/screenshots/home-ja.png" alt="MobiLedger のホーム画面（ダークテーマ）" width="250">
+  &nbsp;
+  <img src="assets/screenshots/entry-ja.png" alt="現金出納帳入力フォーム" width="250">
+</p>
+
+<sub>スクリーンショットは、バックエンド未接続の**デモモード**で実際に動作しているアプリから取得したものです（標準元帳56件、仕訳は未登録）。**仕訳**・**元帳**・**レポート**の各タブはログインが必要です（[はじめ方](#14-はじめ方)を参照）。上の動画は動きを見せるためにUIを再現した演出用の映像で、実際の画面とは細部が異なる場合があります。</sub>
+
+---
+
 ## 目次
 
 1. [概要](#1-概要)
@@ -570,6 +592,11 @@ cp .env.example .env
 |---|---|---|
 | `POST` | `/auth/signup` | `{ name, businessName?, email, username, password }` |
 | `POST` | `/auth/login` | `{ usernameOrEmail, password }` |
+
+## クレジット
+
+- **音楽**（紹介動画）: Sascha Ende「Happy Beats & Business Moves Vol. 9」（[ende.app](https://ende.app/en/albums/happy-beats-business-moves)）、[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja)。動画用にトリミング・フェード処理しています。
+- **効果音**（紹介動画）: [Kenney](https://kenney.nl/) のインターフェース・インパクト・カジノ系サウンド、および unicae_games「Keyboard Soundpack #1」。いずれも CC0（パブリックドメイン）。
 
 ---
 

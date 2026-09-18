@@ -99,3 +99,8 @@ temp/
 *.tmp
 *.bak
 *.swp
+
+
+# ── Generated intro-film project ────────────
+# (source project for the README videos; only the rendered files in assets/video/ are tracked)
+brag-output/
